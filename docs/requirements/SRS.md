@@ -169,9 +169,9 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 | FR-LST-01 | The system shall let a registered user create a listing with name, category, description, condition, sharing type (Free or Paid), daily price, deposit, availability start and end dates, and location. | M | Done | T |
 | FR-LST-02 | The system shall reject a listing whose availability end date is before its start date. | M | Done | T |
 | FR-LST-03 | The system shall reject a listing whose availability start date is in the past. | M | Missing | T |
-| FR-LST-04 | The system shall let an owner edit their own listings. | M | Done | T |
+| FR-LST-04 | The system shall let an owner edit their own listings. | M | Not Done | T |
 | FR-LST-05 | The system shall let an owner delete a listing only when it has no approved or completed rentals. | M | Missing | T |
-| FR-LST-06 | The system shall show each listing's status as Available, Pending, or Booked. | M | Done | T |
+| FR-LST-06 | The system shall show each listing's status as Available, Pending, or Booked. | M | Partial | T |
 | FR-LST-07 | The system shall let an owner upload at least one image per listing (JPG or PNG, at most 5 MB). | S | Missing | T |
 | FR-LST-08 | The system shall let an owner specify pickup and return times so that items can be borrowed for part of a day. | S | Missing | T |
 
@@ -194,7 +194,7 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 | FR-REQ-02 | The system shall reject a request on the user's own listing. | M | Done | T |
 | FR-REQ-03 | The system shall reject a request whose dates fall outside the listing's availability period or whose end date is before its start date. | M | Done | T |
 | FR-REQ-04 | The system shall reject a request when the listing already has a pending or approved request. | M | Done | T |
-| FR-REQ-05 | The system shall calculate the total price as the number of days (inclusive) multiplied by the daily price for Paid listings, and zero for Free listings. | M | Done | T |
+| FR-REQ-05 | The system shall calculate the total price as the number of days (inclusive) multiplied by the daily price for Paid listings, and zero for Free listings. | M | Missing | T |
 | FR-REQ-06 | The system shall show the borrower a running cost estimate while they choose dates, before they submit. | S | Missing | D |
 | FR-REQ-07 | The system shall let an owner approve or reject a request only while it is Pending. | M | Partial | T |
 | FR-REQ-08 | The system shall allow only these status changes: Pending to Approved, Pending to Rejected, Approved to Completed. | M | Missing | T |
@@ -207,12 +207,12 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 
 | ID | Requirement | Pri | Status | Ver |
 |---|---|---|---|---|
-| FR-PAY-01 | The system shall record the payment status (Unpaid or Paid) of each request. | M | Done | T |
-| FR-PAY-02 | The system shall let the owner mark the deposit as Held only after payment is recorded as Paid. | M | Done | T |
-| FR-PAY-03 | The system shall let the owner mark an approved rental as returned (Completed). | M | Done | T |
-| FR-PAY-04 | The system shall calculate a late fee at return as the number of days after the agreed end date multiplied by the daily price. | M | Done | T |
+| FR-PAY-01 | The system shall record the payment status (Unpaid or Paid) of each request. | M | Missing| T |
+| FR-PAY-02 | The system shall let the owner mark the deposit as Held only after payment is recorded as Paid. | M | Missing| T |
+| FR-PAY-03 | The system shall let the owner mark an approved rental as returned (Completed). | M | missing | T |
+| FR-PAY-04 | The system shall calculate a late fee at return as the number of days after the agreed end date multiplied by the daily price. | M | missing | T |
 | FR-PAY-05 | The system shall let the owner record the item's condition on return as Good Condition, or as Damaged with a description and a non-negative charge. | M | Partial | T |
-| FR-PAY-06 | The system shall let the owner refund the deposit only when the rental is Completed, the deposit is Held, and the condition is Good Condition. | M | Done | T |
+| FR-PAY-06 | The system shall let the owner refund the deposit only when the rental is Completed, the deposit is Held, and the condition is Good Condition. | M | ----| T |
 | FR-PAY-07 | The system shall apply a damage charge against the held deposit when an item is returned damaged. | S | Missing | T |
 | FR-PAY-08 | The system shall let the borrower view a damage report and dispute it before the charge is final. | S | Missing | D |
 | FR-PAY-09 | The system shall mark a rental as Overdue when the end date has passed without a return. | S | Missing | T |
@@ -238,14 +238,14 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 | FR-MSG-01 | The system shall let a registered user send a text message of up to 1,000 characters to another registered user. | M | Done | T |
 | FR-MSG-02 | The system shall show a list of conversations with the latest message and unread count. | M | Done | T |
 | FR-MSG-03 | The system shall mark messages as read when the recipient opens the conversation. | M | Done | T |
-| FR-MSG-04 | The system shall let a user delete only messages they sent. | S | Done | T |
+| FR-MSG-04 | The system shall let a user delete only messages they sent. | S | ----- | T |
 
 #### 3.2.8 Notifications and reminders
 
 | ID | Requirement | Pri | Status | Ver |
 |---|---|---|---|---|
 | FR-NTF-01 | The system shall create a notification for the relevant user when a new request is received, approved, or rejected, and when a rental is returned, paid, or assessed for damage. | M | Missing | T |
-| FR-NTF-02 | The system shall create a notification when a user receives a new message. | M | Done | T |
+| FR-NTF-02 | The system shall create a notification when a user receives a new message. | M | missing | T |
 | FR-NTF-03 | The system shall let a user mark notifications as read. | M | Missing | T |
 | FR-NTF-04 | The system shall remind a borrower 24 hours before the end date and when a rental becomes overdue. | S | Missing | T |
 | FR-NTF-05 | The system shall offer email delivery of notifications. | C | Missing | D |

@@ -125,6 +125,6 @@ Never put passwords, tokens, or keys in files, commit messages, issues, or scree
 
 | Name | Responsibility |
 |---|---|
-| Turay Edward Joe | Backend and database development, Flask routes and business logic, rental workflow, payment and deposit logic, late fees, damage handling, testing and debugging |
+| Turay Edward Joe | Backend and database development, Flask routes and business logic, rental workflow, payment and deposit logic, late fees, damage handling, testing and debugging, presentation support |
 | Amanda Nancy Skaikay | Requirements and system analysis, UI and usability review, borrowing and rental workflow testing, documentation and presentation support, functionality evaluation |
-| Sandra Masiwa | System design, project documentation, architecture and workflow design, functional and security requirements, user roles and process flows, security and trust design, presentation support |
+| Sandra Masiwa | System design, project documentation, architecture and workflow design, functional and security requirements, user roles and process flows, security and trust design |

@@ -227,8 +227,8 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 | ID | Requirement | Pri | Status | Ver |
 |---|---|---|---|---|
 | FR-RAT-01 | The system shall let a borrower rate the owner from 1 to 5 stars with a comment, once per completed rental. | M | Done | T |
-| FR-RAT-02 | The system shall let a user view the reviews they have received. | M | Done | T |
-| FR-RAT-03 | The system shall show each user's average rating on their dashboard. | S | Done | T |
+| FR-RAT-02 | The system shall let a user view the reviews they have received. | M | missing | T |
+| FR-RAT-03 | The system shall show each user's average rating on their dashboard. | S | missing | T |
 | FR-RAT-04 | The system shall let an owner rate the borrower. | C | Missing | T |
 
 #### 3.2.7 Messaging

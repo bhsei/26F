@@ -207,9 +207,9 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 
 | ID | Requirement | Pri | Status | Ver |
 |---|---|---|---|---|
-| FR-PAY-01 | The system shall record the payment status (Unpaid or Paid) of each request. | M | Missing| T |
+| FR-PAY-01 | The system shall record the payment status (Unpaid or Paid) of each request. | M | done| T |
 | FR-PAY-02 | The system shall let the owner mark the deposit as Held only after payment is recorded as Paid. | M | Missing| T |
-| FR-PAY-03 | The system shall let the owner mark an approved rental as returned (Completed). | M | missing | T |
+| FR-PAY-03 | The system shall let the owner mark an approved rental as returned (Completed). | M | done| T |
 | FR-PAY-04 | The system shall calculate a late fee at return as the number of days after the agreed end date multiplied by the daily price. | M | missing | T |
 | FR-PAY-05 | The system shall let the owner record the item's condition on return as Good Condition, or as Damaged with a description and a non-negative charge. | M | Partial | T |
 | FR-PAY-06 | The system shall let the owner refund the deposit only when the rental is Completed, the deposit is Held, and the condition is Good Condition. | M | ----| T |

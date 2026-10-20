@@ -208,15 +208,15 @@ CampusShare has one account type. Roles depend on the situation. Full detail is 
 | ID | Requirement | Pri | Status | Ver |
 |---|---|---|---|---|
 | FR-PAY-01 | The system shall record the payment status (Unpaid or Paid) of each request. | M | done| T |
-| FR-PAY-02 | The system shall let the owner mark the deposit as Held only after payment is recorded as Paid. | M | Missing| T |
+| FR-PAY-02 | The system shall let the owner mark the deposit as Held only after payment is recorded as Paid. | M | pending | T |
 | FR-PAY-03 | The system shall let the owner mark an approved rental as returned (Completed). | M | done| T |
 | FR-PAY-04 | The system shall calculate a late fee at return as the number of days after the agreed end date multiplied by the daily price. | M | missing | T |
-| FR-PAY-05 | The system shall let the owner record the item's condition on return as Good Condition, or as Damaged with a description and a non-negative charge. | M | Partial | T |
+| FR-PAY-05 | The system shall let the owner record the item's condition on return as Good Condition, or as Damaged with a description and a non-negative charge. | M | missing | T |
 | FR-PAY-06 | The system shall let the owner refund the deposit only when the rental is Completed, the deposit is Held, and the condition is Good Condition. | M | ----| T |
 | FR-PAY-07 | The system shall apply a damage charge against the held deposit when an item is returned damaged. | S | Missing | T |
 | FR-PAY-08 | The system shall let the borrower view a damage report and dispute it before the charge is final. | S | Missing | D |
 | FR-PAY-09 | The system shall mark a rental as Overdue when the end date has passed without a return. | S | Missing | T |
-| FR-PAY-10 | The system shall support online payment through an external provider. | C | Missing | D |
+| FR-PAY-10 | The system shall support online payment through an external provider. | C | Feasibility study | D |
 
 *FR-PAY-05 note:* in testing the damage button did not work. The code that saves the damage record appears to pass its values to the database incorrectly (**to verify**). Until fixed, no deposit can be refunded because FR-PAY-06 requires Good Condition.
 
@@ -430,3 +430,5 @@ Found by reading `app.py` and by manual testing on 2026-10-17 and 2026-10-18.
 | G-18 | Server listens on all network addresses | code, test | SEC-12 |
 | G-19 | Foreign keys are not enforced, so records can be orphaned | code | NFR-REL-01 |
 | G-20 | No `requirements.txt` | code | NFR-MNT-01 |
+| G-21 | RATING not implemented
+

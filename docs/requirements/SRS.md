@@ -169,9 +169,9 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-AUTH-01 | The system shall let a visitor register by providing name, university email, student ID, password, and password confirmation. | M | Done | T |
 | FR-AUTH-02 | The system shall accept registration only for email addresses ending in `@buaa.edu.cn`. | M | Done | T |
 | FR-AUTH-03 | The system shall reject registration if the email or student ID is already registered. | M | Done | T |
-| FR-AUTH-04 | The system shall let a user with a verified, non-suspended account log in with email and password, ignoring letter case in the email. | M | Done | T |
+| FR-AUTH-04 | The system shall let a user with a verified, non-suspended account log in with email and password, ignoring letter case in the email. | M | testing| T |
 | FR-AUTH-05 | The system shall end the user's session on logout, and logout shall require a form submission protected against forgery. | M | Done | T |
-| FR-AUTH-06 | The system shall let a user reset a forgotten password using a link sent to the registered email, valid for 30 minutes and usable once. | M | Partial | T |
+| FR-AUTH-06 | The system shall let a user reset a forgotten password using a link sent to the registered email, valid for 30 minutes and usable once. | M | testing | T |
 | FR-AUTH-07 | The system shall let a user request a new verification email, limited to three requests per email and IP address per hour. | S | Done | T |
 
 *FR-AUTH-06 note:* the link is emailed (no longer printed to the console) and expires after 30 minutes, but the code does not invalidate it after use, so it can be reused within the time limit.
@@ -479,8 +479,8 @@ Hourly borrowing and the Administrator role are now in scope and built. Please c
 | # | Question | Why it matters |
 |---|---|---|
 | 1 | Should browsing stay public? | Visitors can open the browse page without logging in |
-| 2 | Is real payment in scope, or only the simulated flow? | Decides FR-PAY-10 and the deposit design |
-| 3 | How is a student ID verified, and against what source? | Email confirmation proves the email, not the student ID |
+
+| 3 | How is a student ID verified, and against what source? | Email confirmation proves the email, not the student ID, one way is that students use Student ids as their email, so if email is verified and student ID matches, thats fine but there are some users that use a name or combination of characthers. how to vetify that. |
 | 4 | Do Free items carry a late fee or deposit penalty? | The late fee is rate multiplied by days, which is zero for free items |
 | 5 | Should a listing with one booking still show Booked for its free dates? | Now that several bookings are allowed, the label may mislead |
 | 6 | Who sets up HTTPS, SMTP, and the schedulers for the demonstration? | SEC-12, FR-EXT-03, FR-NTF-04, and NFR-REL-02 depend on it |
@@ -518,6 +518,7 @@ The first review (v0.1, 2026-10-17 and 2026-10-18) found these gaps in `main`. T
 | G-21 | Rating reported as not implemented at retest | Resolved: both parties can review | FR-RAT-01, FR-RAT-04 |
 | G-22 | Retest on `main` (2026-10-22): editing listings, price, late fee, reviews, and message notifications did not work | Resolved on `joe-work` | FR-LST-04, FR-REQ-05, FR-PAY-04, FR-RAT-02, FR-NTF-02 |
 
+
 ### Gaps found in the 2026-10-27 review of latest prototype
 
 | ID | Observation | Requirement |
@@ -530,5 +531,37 @@ The first review (v0.1, 2026-10-17 and 2026-10-18) found these gaps in `main`. T
 | G-28 | All route handlers are in one file of about 3,700 lines | NFR-MNT-02 |
 | G-29 | The 360 px screen width has not been tested | NFR-USE-03 |
 | G-30 | A listing shows Booked after one approved request, even when other dates are free | FR-LST-06 |
-| G-31 | The README lists administration as both complete and still to do | Documentation |
-| G-32 | The new work is on branch `joe-work` and is not yet merged into `main` | All |
+| G-31 | Required Improvements to the Equipment Borrowing System
+1. Security Deposit Display
+- The item description should display the required security deposit.
+- The estimated rental cost should clearly state that the security deposit is not included in the rental fee.
+2. Meetup and Physical Inspection
+- Once a borrower requests an item, the system should prompt the borrower and owner to arrange a physical meetup.
+- Both parties must meet and inspect the item before the rental is confirmed.
+- The borrower should confirm whether they wish to proceed after inspecting the item.
+3. Item Condition Documentation
+- If the borrower agrees to proceed, they should be able to take and upload pictures of the item's current condition.
+- These pictures will serve as evidence of the item's condition at the time of collection and can be compared against its condition upon return.
+4. Rental Payment
+- After documenting the item's condition, the borrower should proceed with the rental and payment.
+- The system should clearly display the rental fee and security deposit separately.
+5. Approval Workflow
+- The current approval workflow needs to be revised.
+- The owner should only approve the rental after the borrower has completed the required inspection, condition documentation, and payment.
+- The system should not display the Mark as Returned option immediately after approval.
+6. Rental Countdown and Return Tracking
+- Introduce a timer or countdown based on the agreed borrowing period.
+- The countdown should begin when the rental is confirmed and the item is handed over.
+- The owner should be able to mark the item as returned once it has been physically returned.
+7. Late Return and Penalties
+- Introduce a late-return policy for items returned after the agreed deadline.
+- The system should calculate late fees based on the duration of the delay and the applicable penalty rate.
+- Notify the borrower when the return deadline is approaching or has passed.
+8. Security Deposit Refund
+- After the item is returned, the owner should inspect its condition.
+- If the item is returned in good condition, the security deposit should be refunded to the borrower.
+- If damage is identified, the system should support documenting the damage and determining any applicable deductions according to the agreed policy.
+9. Hourly Rental Rates
+- Introduce an hourly rental rate in addition to the existing rental pricing options.
+- The system should calculate the rental cost based on the selected hourly or daily borrowing period. | request item and payment flow |
+

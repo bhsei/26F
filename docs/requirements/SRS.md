@@ -22,13 +22,13 @@
 
 ## Table of contents
 
-1. [Introduction](../../../Downloads/SRS (2).md#1-introduction)
-2. [Overall description](../../../Downloads/SRS (2).md#2-overall-description)
-3. [Specific requirements](../../../Downloads/SRS (2).md#3-specific-requirements)
-4. [Process flows](../../../Downloads/SRS (2).md#4-process-flows)
-5. [Verification and traceability](../../../Downloads/SRS (2).md#5-verification-and-traceability)
-6. [Open issues for team decision](../../../Downloads/SRS (2).md#6-open-issues-for-team-decision)
-7. [Appendix A: Gaps found in the first prototype](../../../Downloads/SRS (2).md#appendix-a-gaps-found-in-the-first-prototype)
+1. [Introduction](#1-introduction)
+2. [Overall description](#2-overall-description)
+3. [Specific requirements](#3-specific-requirements)
+4. [Process flows](#4-process-flows)
+5. [Verification and traceability](#5-verification-and-traceability)
+6. [Open issues for team decision](#6-open-issues-for-team-decision)
+7. [Appendix A: Gaps found in the first prototype](#appendix-a-gaps-found-in-the-first-prototype)
 
 ---
 

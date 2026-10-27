@@ -404,6 +404,7 @@ sequenceDiagram
     B->>S: Review the owner
     O->>S: Review the borrower
 ```
+ 
 
 ### 4.3 Account flow
 

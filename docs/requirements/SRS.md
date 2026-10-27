@@ -378,32 +378,57 @@ sequenceDiagram
     actor B as Borrower
     participant S as CampusShare
     actor O as Owner
-    B->>S: Request item (dates, or times if hourly)
-    S-->>B: Saved as Pending, price calculated
-    S-->>O: Notification: new request
-    O->>S: Approve or reject
-    S-->>B: Notification of decision
-    B->>S: Pay (simulated QR payment)
-    S-->>O: Notification: paid
-    O->>S: Confirm deposit held
-    Note over B,O: Item handed over in person
-    O->>S: Mark item returned (payment must be recorded; late fee calculated)
-    S-->>B: Notification: returned
-    alt item damaged
-        O->>S: Record Damaged with description and charge
-        S-->>B: Notification, 48 hours to review
-        opt borrower disagrees
-            B->>S: Dispute the report
-            O->>S: Uphold, revise, or cancel (or administrator resolves)
+
+    B->>S: Request item with dates or times
+    S-->>B: Request saved as Pending and price calculated
+    S-->>O: Notify owner of new request
+
+    O->>S: Approve or reject request
+    S-->>B: Notify borrower of decision
+
+    alt Request rejected
+        S-->>B: End rental process
+    else Request approved
+        B->>S: Pay rental fee using simulated QR payment
+        S-->>O: Notify owner of payment
+        B->>S: Confirm meetup and inspection
+        Note over B,O: Meet in person and inspect item
+        B->>S: Upload photos of item condition
+        B->>S: Confirm rental and deposit
+        O->>S: Confirm item handover
+        S-->>B: Start rental countdown
+
+        Note over B,O: Borrower uses item during rental period
+
+        alt Item returned on time
+            B->>O: Return item
+        else Item returned late
+            B->>O: Return item after deadline
+            S->>S: Calculate late fee
         end
-        O->>S: Settle charge against the deposit
-    else item in good condition
-        O->>S: Record Good Condition
-        O->>S: Refund deposit
+
+        O->>S: Mark item as returned
+        S-->>B: Notify borrower of return
+
+        alt Item damaged
+            O->>S: Record damage and proposed charge
+            S-->>B: Notify borrower and allow 48 hours to review
+            opt Borrower disputes damage report
+                B->>S: Submit dispute
+                O->>S: Review and revise or uphold charge
+            end
+            O->>S: Deduct agreed charge from deposit
+            S-->>B: Refund remaining deposit
+        else Item in good condition
+            O->>S: Confirm good condition
+            O->>S: Refund full deposit
+        end
+
+        B->>S: Review owner
+        O->>S: Review borrower
     end
-    B->>S: Review the owner
-    O->>S: Review the borrower
 ```
+
  
 
 ### 4.3 Account flow

@@ -531,37 +531,5 @@ The first review (v0.1, 2026-10-17 and 2026-10-18) found these gaps in `main`. T
 | G-28 | All route handlers are in one file of about 3,700 lines | NFR-MNT-02 |
 | G-29 | The 360 px screen width has not been tested | NFR-USE-03 |
 | G-30 | A listing shows Booked after one approved request, even when other dates are free | FR-LST-06 |
-| G-31 | Required Improvements to the Equipment Borrowing System
-1. Security Deposit Display
-- The item description should display the required security deposit.
-- The estimated rental cost should clearly state that the security deposit is not included in the rental fee.
-2. Meetup and Physical Inspection
-- Once a borrower requests an item, the system should prompt the borrower and owner to arrange a physical meetup.
-- Both parties must meet and inspect the item before the rental is confirmed.
-- The borrower should confirm whether they wish to proceed after inspecting the item.
-3. Item Condition Documentation
-- If the borrower agrees to proceed, they should be able to take and upload pictures of the item's current condition.
-- These pictures will serve as evidence of the item's condition at the time of collection and can be compared against its condition upon return.
-4. Rental Payment
-- After documenting the item's condition, the borrower should proceed with the rental and payment.
-- The system should clearly display the rental fee and security deposit separately.
-5. Approval Workflow
-- The current approval workflow needs to be revised.
-- The owner should only approve the rental after the borrower has completed the required inspection, condition documentation, and payment.
-- The system should not display the Mark as Returned option immediately after approval.
-6. Rental Countdown and Return Tracking
-- Introduce a timer or countdown based on the agreed borrowing period.
-- The countdown should begin when the rental is confirmed and the item is handed over.
-- The owner should be able to mark the item as returned once it has been physically returned.
-7. Late Return and Penalties
-- Introduce a late-return policy for items returned after the agreed deadline.
-- The system should calculate late fees based on the duration of the delay and the applicable penalty rate.
-- Notify the borrower when the return deadline is approaching or has passed.
-8. Security Deposit Refund
-- After the item is returned, the owner should inspect its condition.
-- If the item is returned in good condition, the security deposit should be refunded to the borrower.
-- If damage is identified, the system should support documenting the damage and determining any applicable deductions according to the agreed policy.
-9. Hourly Rental Rates
-- Introduce an hourly rental rate in addition to the existing rental pricing options.
-- The system should calculate the rental cost based on the selected hourly or daily borrowing period. | request item and payment flow |
-
+| G-31 | The README lists administration as both complete and still to do | Documentation |
+| G-32 | The new work is on branch `joe-work` and is not yet merged into `main` | All |

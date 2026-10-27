@@ -18,7 +18,7 @@
 |---|---|---|---|
 | v0.1 | 2026-10-18 | Sandra Masiwa | First draft, based on review of the first prototype (`main`, commit `2403816`) and manual testing |
 | v0.2 | 2026-10-22 | Sandra Masiwa | Statuses revised after retesting the first prototype; status legend extended |
-| v0.3 | 2026-10-27 | Sandra Masiwa | Re-baselined against branch `joe-work`: statuses checked by running the 76 automated tests and reading the code; new requirements added for features built since v0.1; Appendix A rewritten to show what was resolved |
+| v0.3 | 2026-10-27 | Sandra Masiwa | Re-baselined against branch `joe-work`: statuses checked by running the 76 automated tests and mannual testing; new requirements added for features built since v0.1; Appendix A rewritten to show what was resolved |
 
 ## Table of contents
 

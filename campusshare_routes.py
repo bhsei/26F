@@ -75,6 +75,9 @@ def enforce_account_status():
         return None
 
     connection = connect_database(application.DATABASE)
+
+
+
     account = connection.execute(
         "SELECT role, suspended FROM users WHERE id = ?",
         (user_id,),
@@ -1467,6 +1470,23 @@ def approve_request(request_id):
         return redirect(url_for("login"))
 
     connection = connect_database(application.DATABASE)
+
+    # Check that only the equipment owner can confirm handover
+    owner_check = connection.execute(
+        """
+        SELECT 1
+        FROM borrowing_requests AS br
+        JOIN equipment AS e
+            ON br.equipment_id = e.id
+        WHERE br.id = ?
+          AND e.owner_id = ?
+        """,
+        (request_id, session["user_id"])
+    ).fetchone()
+
+    if owner_check is None:
+        connection.close()
+        return error_response("Rental not found.", 404)
 
     request_data = connection.execute(
         """

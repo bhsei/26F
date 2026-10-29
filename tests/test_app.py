@@ -160,18 +160,80 @@ class RentalWorkflowTests(unittest.TestCase):
                 "SELECT id FROM borrowing_requests"
             ).fetchone()[0]
         self.assertEqual(self.get_request(request_id)[:3], ("Pending", "Unpaid", 24.0))
+        from datetime import datetime, timedelta
+        import io
+        from PIL import Image
 
+        # Owner schedules the meetup
         self.sign_in_as(self.owner_id)
-        response = self.client.post(f"/requests/{request_id}/approve")
+        meetup_time = (
+            datetime.now() + timedelta(hours=1)
+        ).strftime("%Y-%m-%dT%H:%M")
+
+        response = self.client.post(
+            f"/requests/{request_id}/schedule-meetup",
+            data={
+                "meetup_at": meetup_time,
+                "meetup_location": "Campus library entrance",
+            },
+        )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.get_request(request_id)[0], "Approved")
+
+        # Borrower confirms the meetup
+        self.sign_in_as(self.borrower_id)
+        response = self.client.post(
+            f"/requests/{request_id}/confirm-meetup"
+        )
+        self.assertEqual(response.status_code, 302)
+
+        # Simulate the meetup taking place in the test database
         with self.database_connection() as connection:
-            self.assertEqual(
-                connection.execute(
-                    "SELECT user_id, message FROM notifications ORDER BY id DESC"
-                ).fetchone(),
-                (self.borrower_id, "Your request for Camera was approved."),
+            connection.execute(
+                """
+                UPDATE borrowing_requests
+                SET meetup_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (
+                        datetime.now() - timedelta(minutes=10)
+                    ).isoformat(timespec="minutes"),
+                    request_id,
+                ),
             )
+
+        # Borrower uploads a real test image
+        image_file = io.BytesIO()
+        Image.new(
+            "RGB", (20, 20), (100, 150, 200)
+        ).save(image_file, format="PNG")
+        image_file.seek(0)
+
+        response = self.client.post(
+            f"/rentals/{request_id}/inspection-photo",
+            data={
+                "inspection_photo": (
+                    image_file,
+                    "pickup_test.png",
+                )
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        # Borrower verifies the inspection
+        response = self.client.post(
+            f"/rentals/{request_id}/verify-inspection"
+        )
+        self.assertEqual(response.status_code, 302)
+
+        # Owner also verifies the inspection
+        self.sign_in_as(self.owner_id)
+        response = self.client.post(
+            f"/rentals/{request_id}/verify-inspection"
+        )
+        self.assertEqual(response.status_code, 302)
+
 
         self.sign_in_as(self.borrower_id)
         response = self.client.get(f"/qr-payment/{request_id}")
@@ -213,6 +275,17 @@ class RentalWorkflowTests(unittest.TestCase):
             )
 
         self.sign_in_as(self.owner_id)
+
+        # Owner confirms handover after demo payment
+        response = self.client.post(
+            f"/requests/{request_id}/approve"
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            self.get_request(request_id)[0],
+            "Approved",
+        )
+
         response = self.client.post(f"/confirm-deposit/{request_id}")
         self.assertEqual(response.status_code, 302)
         response = self.client.post(f"/requests/{request_id}/complete")
@@ -863,7 +936,10 @@ class RentalWorkflowTests(unittest.TestCase):
                         response = self.client.post(
                             f"/requests/{request_id}/{action}"
                         )
-                        self.assertEqual(response.status_code, 404)
+
+                        expected_status = 409 if action == "approve" else 404
+                        self.assertEqual(response.status_code, expected_status)
+
                         self.assertEqual(self.get_request(request_id)[0], initial_status)
 
                 with self.database_connection() as connection:
@@ -1169,19 +1245,28 @@ class RentalWorkflowTests(unittest.TestCase):
                 ).fetchone()[0]
 
             self.sign_in_as(self.owner_id)
-            approval_response = self.client.post(
-                f"/requests/{request_id}/approve"
-            )
-            self.assertEqual(approval_response.status_code, 302)
+
+            # Prepare the rental for handover in the test database
             with self.database_connection() as connection:
                 connection.execute(
                     """
                     UPDATE borrowing_requests
-                    SET payment_status = 'Paid'
+                    SET payment_status = 'Paid',
+                        meetup_status = 'Confirmed',
+                        meetup_owner_verified_at = CURRENT_TIMESTAMP,
+                        meetup_borrower_verified_at = CURRENT_TIMESTAMP,
+                        inspection_rejected_at = NULL
                     WHERE id = ?
                     """,
                     (request_id,),
                 )
+
+            # Owner confirms the handover
+            approval_response = self.client.post(
+                f"/requests/{request_id}/approve"
+            )
+            self.assertEqual(approval_response.status_code, 302)
+
             deposit_response = self.client.post(
                 f"/confirm-deposit/{request_id}"
             )
@@ -1253,7 +1338,7 @@ class RentalWorkflowTests(unittest.TestCase):
         logs = "\n".join(captured_logs.output)
         for event in (
             "login_failed",
-            "rental_approved",
+            "rental_handover_confirmed",
             "deposit_held",
             "damage_assessed",
             "damage_dispute_opened",
@@ -1797,7 +1882,19 @@ class RentalWorkflowTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.sign_in_as(self.owner_id)
-        self.client.post(f"/requests/{request_id}/approve")
+
+        # Simulate an approved but unpaid rental in the test database
+        with self.database_connection() as connection:
+            connection.execute(
+                """
+                UPDATE borrowing_requests
+                SET status = 'Approved',
+                    payment_status = 'Unpaid'
+                WHERE id = ?
+                """,
+                (request_id,),
+            )
+
         response = self.client.post(f"/requests/{request_id}/complete")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.get_request(request_id)[0], "Approved")
@@ -1954,9 +2051,16 @@ class RentalWorkflowTests(unittest.TestCase):
 
         self.sign_in_as(self.borrower_id)
         borrower_response = self.client.get("/my-rentals")
-        self.assertEqual(borrower_response.status_code, 200)
-        self.assertIn(b"Final Damage Charge:</strong>\n                \xc2\xa512.00", borrower_response.data)
-        self.assertIn(b"Refund Received:</strong>\n\n                \xc2\xa58.00", borrower_response.data)
+
+        self.assertRegex(
+            borrower_response.data,
+            rb"Final Damage Charge:</strong>\s*\xc2\xa512\.00",
+        )
+        self.assertRegex(
+            borrower_response.data,
+            rb"Refund Received:</strong>\s*\xc2\xa58\.00",
+        )
+
 
     def test_damage_charge_cannot_be_settled_before_48_hour_review_window(self):
         with self.database_connection() as connection:
@@ -2713,12 +2817,30 @@ class RentalWorkflowTests(unittest.TestCase):
                 )
 
             self.sign_in_as(self.owner_id)
+
+            # Prepare the rental for handover in the test database
+            with self.database_connection() as connection:
+                connection.execute(
+                    """
+                    UPDATE borrowing_requests
+                    SET payment_status = 'Paid',
+                        meetup_status = 'Confirmed',
+                        meetup_owner_verified_at = CURRENT_TIMESTAMP,
+                        meetup_borrower_verified_at = CURRENT_TIMESTAMP,
+                        inspection_rejected_at = NULL
+                    WHERE id = ?
+                    """,
+                    (request_id,),
+                )
+
             response = self.client.post(f"/requests/{request_id}/approve")
             self.assertEqual(response.status_code, 302)
+
             send_email.assert_called_once_with(
                 "borrower@test.example",
-                "Your request for Camera was approved.",
+                "The owner confirmed the equipment handover for Camera.",
             )
+
 
     def test_notification_email_failure_is_logged_without_losing_in_app_notice(self):
         with self.database_connection() as connection:

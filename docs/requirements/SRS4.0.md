@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | CampusShare (Team 26F) |
 | **Document** | Software Requirements Specification |
-| **Version** | v0.3 (draft for team review) |
+| **Version** | v0.4 (draft for team review) |
 | **Date** | 2026-10-27 |
 | **Author** | Sandra Masiwa (system design and documentation) |
 | **Team** | Turay Edward Joe (backend and business logic), Amanda Nancy Skaikay (requirements analysis and usability review), Sandra Masiwa (system design and documentation) |

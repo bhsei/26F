@@ -26,6 +26,7 @@ def create_due_return_reminders(database_path, today=None):
             JOIN equipment
                 ON borrowing_requests.equipment_id = equipment.id
             WHERE borrowing_requests.status = 'Approved'
+                AND borrowing_requests.awaiting_handover = 0
                 AND date(borrowing_requests.end_date) = ?
             """,
             (return_date,),

@@ -1,5 +1,9 @@
 from datetime import date, datetime
 import io
+
+import hashlib
+import hmac
+
 import math
 import os
 import sqlite3
@@ -73,11 +77,7 @@ def enforce_account_status():
     user_id = session.get("user_id")
     if user_id is None:
         return None
-
     connection = connect_database(application.DATABASE)
-
-
-
     account = connection.execute(
         "SELECT role, suspended FROM users WHERE id = ?",
         (user_id,),
@@ -104,6 +104,7 @@ def mark_overdue_rentals():
         FROM borrowing_requests
         JOIN equipment ON borrowing_requests.equipment_id = equipment.id
         WHERE borrowing_requests.status IN ('Approved', 'Overdue')
+          AND borrowing_requests.awaiting_handover = 0
           AND date(borrowing_requests.end_date) < date('now', 'localtime')
         """
     ).fetchall()
@@ -115,6 +116,7 @@ def mark_overdue_rentals():
             SET status = 'Overdue'
             WHERE id = ?
               AND status = 'Approved'
+              AND awaiting_handover = 0
               AND date(end_date) < date('now', 'localtime')
             """,
             (request_id,),
@@ -551,7 +553,7 @@ def resend_verification():
             """
             SELECT COUNT(*)
             FROM verification_email_attempts
-            WHERE email = ? AND ip_address = ?
+                   WHERE (email = ? OR ip_address = ?)
                 AND attempted_at > datetime('now', ?)
             """,
             (
@@ -562,7 +564,7 @@ def resend_verification():
         ).fetchone()[0]
         user = connection.execute(
             """
-            SELECT id, email
+            SELECT id, email, password
             FROM users
             WHERE LOWER(email) = ? AND email_verified = 0
             """,
@@ -1457,7 +1459,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 
 # =====================================================
-# CONFIRM EQUIPMENT HANDOVER
+# OWNER APPROVAL (handover happens separately)
 # =====================================================
 
 @app.route(
@@ -1471,7 +1473,7 @@ def approve_request(request_id):
 
     connection = connect_database(application.DATABASE)
 
-    # Check that only the equipment owner can confirm handover
+    # Only the owner can approve the rental request
     owner_check = connection.execute(
         """
         SELECT 1
@@ -1504,6 +1506,8 @@ def approve_request(request_id):
           AND equipment.owner_id = ?
           AND borrowing_requests.status = 'Pending'
           AND borrowing_requests.payment_status = 'Paid'
+          AND (equipment.deposit <= 0
+               OR borrowing_requests.deposit_status = 'Held')
           AND borrowing_requests.meetup_status = 'Confirmed'
           AND borrowing_requests.meetup_owner_verified_at IS NOT NULL
           AND borrowing_requests.meetup_borrower_verified_at IS NOT NULL
@@ -1519,9 +1523,8 @@ def approve_request(request_id):
         connection.close()
 
         return error_response(
-            "Handover requires both inspection approvals "
-            "and completed demo payment. Only the equipment "
-            "owner can confirm handover.",
+            "Owner approval requires completed inspection, demo payment "
+            "and a held security deposit when one is required.",
             409
         )
 
@@ -1529,11 +1532,20 @@ def approve_request(request_id):
         """
         UPDATE borrowing_requests
 
-        SET status = 'Approved'
+        SET status = 'Approved',
+            awaiting_handover = 1,
+            borrower_ready_at = NULL,
+            handed_over_at = NULL
 
         WHERE id = ?
           AND status = 'Pending'
           AND payment_status = 'Paid'
+          AND EXISTS (
+              SELECT 1 FROM equipment AS deposit_equipment
+              WHERE deposit_equipment.id = borrowing_requests.equipment_id
+                AND (deposit_equipment.deposit <= 0
+                     OR borrowing_requests.deposit_status = 'Held')
+          )
           AND meetup_status = 'Confirmed'
           AND meetup_owner_verified_at IS NOT NULL
           AND meetup_borrower_verified_at IS NOT NULL
@@ -1555,15 +1567,15 @@ def approve_request(request_id):
         connection.close()
 
         return error_response(
-            "This rental is not eligible for handover.",
+            "This rental is not eligible for approval.",
             409
         )
 
     add_notification(
         connection,
         request_data[1],
-        f"The owner confirmed the equipment handover "
-        f"for {request_data[2]}.",
+        f"Your borrowing request for {request_data[2]} was approved. "
+        "Confirm that you are ready for handover.",
         url_for("my_rentals")
     )
 
@@ -1571,11 +1583,91 @@ def approve_request(request_id):
     connection.close()
 
     log_security_event(
-        "rental_handover_confirmed",
+        "rental_request_approved",
         actor_id=session["user_id"],
         request_id=request_id
     )
 
+    return redirect(url_for("owner_requests"))
+
+
+@app.route("/rentals/<int:request_id>/ready-for-handover", methods=["POST"])
+def ready_for_handover(request_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    connection = connect_database(application.DATABASE)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        rental = connection.execute(
+            """SELECT br.borrower_id, e.owner_id, e.item_name
+               FROM borrowing_requests AS br
+               JOIN equipment AS e ON e.id = br.equipment_id
+               WHERE br.id = ? AND br.status = 'Approved'
+                 AND br.awaiting_handover = 1
+                 AND br.borrower_ready_at IS NULL
+            """, (request_id,)
+        ).fetchone()
+        if rental is None:
+            return error_response("This rental is not awaiting readiness.", 409)
+        if rental[0] != session["user_id"]:
+            return error_response("Only the borrower can confirm readiness.", 403)
+        connection.execute(
+            """UPDATE borrowing_requests
+               SET borrower_ready_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status = 'Approved'
+                 AND awaiting_handover = 1 AND borrower_ready_at IS NULL""",
+            (request_id,),
+        )
+        add_notification(connection, rental[1],
+            f"The borrower is ready for handover of {rental[2]}.",
+            url_for("owner_requests"))
+        connection.commit()
+    finally:
+        connection.close()
+    log_security_event("borrower_ready_for_handover",
+                       actor_id=session["user_id"], request_id=request_id)
+    return redirect(url_for("my_rentals"))
+
+
+@app.route("/requests/<int:request_id>/confirm-handover", methods=["POST"])
+def confirm_handover(request_id):
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+    connection = connect_database(application.DATABASE)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        rental = connection.execute(
+            """SELECT br.borrower_id, e.owner_id, e.item_name
+               FROM borrowing_requests AS br
+               JOIN equipment AS e ON e.id = br.equipment_id
+               WHERE br.id = ? AND br.status = 'Approved'
+                 AND br.awaiting_handover = 1
+                 AND br.borrower_ready_at IS NOT NULL
+                 AND br.handed_over_at IS NULL
+            """, (request_id,)
+        ).fetchone()
+        if rental is None:
+            return error_response("Borrower readiness is required before handover.", 409)
+        if rental[1] != session["user_id"]:
+            return error_response("Only the owner can confirm handover.", 403)
+        result = connection.execute(
+            """UPDATE borrowing_requests
+               SET awaiting_handover = 0, handed_over_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND status = 'Approved'
+                 AND awaiting_handover = 1
+                 AND borrower_ready_at IS NOT NULL
+                 AND handed_over_at IS NULL""", (request_id,),
+        )
+        if result.rowcount != 1:
+            return error_response("Handover was already recorded.", 409)
+        add_notification(connection, rental[0],
+            f"The owner confirmed the equipment handover for {rental[2]}.",
+            url_for("my_rentals"))
+        connection.commit()
+    finally:
+        connection.close()
+    log_security_event("rental_handover_confirmed",
+                       actor_id=session["user_id"], request_id=request_id)
     return redirect(url_for("owner_requests"))
 
 
@@ -2125,71 +2217,72 @@ def verify_equipment_inspection(request_id):
     methods=["POST"]
 )
 def reject_request(request_id):
-
     if "user_id" not in session:
         return redirect(url_for("login"))
 
     connection = connect_database(application.DATABASE)
+    try:
+        # Lock before checking eligibility and updating money-related statuses.
+        connection.execute("BEGIN IMMEDIATE")
+        rental = connection.execute(
+            """
+            SELECT br.borrower_id, e.item_name,
+                   br.payment_status, br.deposit_status
+            FROM borrowing_requests AS br
+            JOIN equipment AS e ON br.equipment_id = e.id
+            WHERE br.id = ? AND e.owner_id = ?
+              AND br.status = 'Pending'
+              AND br.payment_status IN ('Unpaid', 'Paid')
+            """,
+            (request_id, session["user_id"]),
+        ).fetchone()
 
-    request_data = connection.execute(
-        """
-        SELECT
-            borrowing_requests.id,
-            borrowing_requests.borrower_id,
-            equipment.item_name
+        if rental is None:
+            return error_response(
+                "Pending request not found or you are not the owner.",
+                404,
+                "Request unavailable",
+            )
 
-        FROM borrowing_requests
+        borrower_id, item_name, payment_status, deposit_status = rental
+        if deposit_status not in {"Pending", "Held"}:
+            return error_response("This deposit cannot be refunded again.", 409)
 
-        JOIN equipment
-        ON borrowing_requests.equipment_id = equipment.id
-
-        WHERE borrowing_requests.id = ?
-        AND equipment.owner_id = ?
-        AND borrowing_requests.status = 'Pending'
-        AND borrowing_requests.payment_status = 'Unpaid'
-        """,
-        (
-            request_id,
-            session["user_id"]
+        cursor = connection.execute(
+            """
+            UPDATE borrowing_requests
+            SET status = 'Rejected',
+                payment_status = CASE
+                    WHEN payment_status = 'Paid' THEN 'Refunded'
+                    ELSE payment_status END,
+                deposit_status = CASE
+                    WHEN deposit_status = 'Held' THEN 'Refunded'
+                    ELSE deposit_status END
+            WHERE id = ? AND status = 'Pending'
+              AND payment_status = ? AND deposit_status = ?
+            """,
+            (request_id, payment_status, deposit_status),
         )
-    ).fetchone()
+        if cursor.rowcount != 1:
+            return error_response("This request is no longer pending.", 409)
 
-    if request_data is None:
-
+        note = f"Your request for {item_name} was rejected."
+        if payment_status == "Paid":
+            note += " Your demo rental payment was marked refunded."
+        if deposit_status == "Held":
+            note += " Your demo deposit was marked refunded."
+        add_notification(connection, borrower_id, note, url_for("my_rentals"))
+        connection.commit()
+    finally:
         connection.close()
 
-        return error_response(
-            "Pending request not found or you are not the owner.",
-            404,
-            "Request unavailable",
+    if payment_status == "Paid" or deposit_status == "Held":
+        log_security_event(
+            "rental_rejection_refund",
+            actor_id=session["user_id"],
+            request_id=request_id,
         )
-
-    cursor = connection.execute(
-        """
-        UPDATE borrowing_requests
-        SET status = 'Rejected'
-        WHERE id = ?
-          AND status = 'Pending'
-            AND payment_status = 'Unpaid'
-        """,
-        (request_id,)
-    )
-    if cursor.rowcount != 1:
-        connection.close()
-        return error_response("This request is no longer pending.", 409)
-    add_notification(
-        connection,
-        request_data[1],
-        f"Your request for {request_data[2]} was rejected.",
-        url_for("my_rentals"),
-    )
-
-    connection.commit()
-    connection.close()
-
-    return redirect(
-        url_for("owner_requests")
-    )
+    return redirect(url_for("owner_requests"))
 
 
 # =====================================================
@@ -2237,6 +2330,7 @@ borrowing_requests.late_fee,
 borrowing_requests.late_fee_status,
 CASE
     WHEN borrowing_requests.status IN ('Approved', 'Overdue')
+         AND borrowing_requests.awaiting_handover = 0
     THEN CAST(
         julianday(borrowing_requests.end_date)
         - julianday(date('now', 'localtime'))
@@ -2266,7 +2360,10 @@ borrowing_requests.meetup_location,
 equipment.image_path,
 borrowing_requests.meetup_owner_verified_at,
 borrowing_requests.meetup_borrower_verified_at,
-borrowing_requests.inspection_rejected_at
+borrowing_requests.inspection_rejected_at,
+borrowing_requests.awaiting_handover,
+borrowing_requests.borrower_ready_at,
+borrowing_requests.handed_over_at
 
 FROM borrowing_requests
 
@@ -2436,6 +2533,24 @@ def edit_listing(equipment_id):
             "Listing unavailable",
         )
 
+    # Do not allow changing the terms of a listing while a rental is active.
+    active_booking = connection.execute(
+        """
+        SELECT 1 FROM borrowing_requests
+        WHERE equipment_id = ?
+          AND status IN ('Pending', 'Approved', 'Overdue')
+        LIMIT 1
+        """,
+        (equipment_id,),
+    ).fetchone()
+    if active_booking:
+        connection.close()
+        return error_response(
+            "This listing cannot be edited while a rental request is active.",
+            409,
+            "Listing temporarily locked",
+        )
+
     if request.method == "POST":
 
         item_name = request.form.get("item_name", "").strip()
@@ -2537,7 +2652,7 @@ def edit_listing(equipment_id):
             image_path = None
 
         try:
-            connection.execute(
+            updated = connection.execute(
                 """
                 UPDATE equipment
 
@@ -2559,6 +2674,11 @@ def edit_listing(equipment_id):
 
                 WHERE id = ?
                 AND owner_id = ?
+                AND NOT EXISTS (
+                    SELECT 1 FROM borrowing_requests
+                    WHERE equipment_id = equipment.id
+                      AND status IN ('Pending', 'Approved', 'Overdue')
+                )
                 """,
                 (
                     item_name,
@@ -2579,6 +2699,16 @@ def edit_listing(equipment_id):
                     session["user_id"]
                 )
             )
+            if updated.rowcount != 1:
+                connection.rollback()
+                connection.close()
+                if saved_image_path:
+                    delete_equipment_image(uploaded_image_path)
+                return error_response(
+                    "This listing cannot be edited while a rental request is active.",
+                    409,
+                    "Listing temporarily locked",
+                )
             connection.commit()
         except sqlite3.Error:
             connection.rollback()
@@ -2702,7 +2832,8 @@ def complete_request(request_id):
             equipment.item_name,
             COALESCE(borrowing_requests.unit_price, equipment.price),
             borrowing_requests.price_unit,
-            borrowing_requests.end_time
+            borrowing_requests.end_time,
+            borrowing_requests.awaiting_handover
         FROM borrowing_requests
 
         JOIN equipment
@@ -2725,6 +2856,9 @@ def complete_request(request_id):
             404,
             "Rental unavailable",
         )
+    if request_data[8]:
+        connection.close()
+        return error_response("Confirm physical handover before marking an item returned.", 409)
     if float(request_data[5] or 0) > 0 and request_data[3] != "Paid":
         connection.close()
         return error_response(
@@ -2766,6 +2900,7 @@ def complete_request(request_id):
             late_fee = ?
         WHERE id = ?
           AND status IN ('Approved', 'Overdue')
+          AND awaiting_handover = 0
         """,
         (
             late_fee,
@@ -3014,7 +3149,10 @@ borrowing_requests.meetup_at,
 
 borrowing_requests.meetup_location,
 borrowing_requests.meetup_owner_verified_at,
-borrowing_requests.meetup_borrower_verified_at
+borrowing_requests.meetup_borrower_verified_at,
+borrowing_requests.awaiting_handover,
+borrowing_requests.borrower_ready_at,
+borrowing_requests.handed_over_at
 
 FROM borrowing_requests
 
@@ -3090,7 +3228,7 @@ def students():
             id,
             name
         FROM users
-        WHERE id != ?
+        WHERE id != ? AND deleted_at IS NULL
         ORDER BY name
         """,
         (session["user_id"],)
@@ -3270,6 +3408,107 @@ def chat(student_id):
         current_user_id=current_user_id
     )
 
+@app.route("/account/delete", methods=["GET", "POST"])
+def delete_account():
+    """Deactivate and pseudonymize an eligible account, preserving rental history."""
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    user_id = session["user_id"]
+    if request.method == "GET":
+        return render_template("delete_account.html")
+
+    if request.form.get("confirmation", "").strip() != "DELETE":
+        return error_response("Type DELETE to confirm account deletion.", 400)
+
+    password = request.form.get("password", "")
+    connection = connect_database(application.DATABASE, timeout=30)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        account = connection.execute(
+            "SELECT password, role, deleted_at, email FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if not account or account[2] is not None:
+            return error_response("Account not found.", 404)
+        if account[1] == "admin":
+            return error_response("Administrator accounts cannot be deleted here.", 403)
+        if not check_password_hash(account[0], password):
+            return error_response("Incorrect account password.", 403)
+
+        unsettled = connection.execute(
+            """
+            SELECT 1
+            FROM borrowing_requests AS br
+            JOIN equipment AS e ON e.id = br.equipment_id
+            WHERE (br.borrower_id = ? OR e.owner_id = ?)
+              AND (
+                  br.status IN ('Pending', 'Approved', 'Overdue')
+                  OR br.damage_dispute_status = 'Pending'
+                  OR br.deposit_status = 'Held'
+                  OR (COALESCE(br.late_fee, 0) > 0
+                      AND br.late_fee_status = 'Unpaid')
+              )
+            LIMIT 1
+            """,
+            (user_id, user_id),
+        ).fetchone()
+        if unsettled:
+            return error_response(
+                "Finish all active rentals, deposit settlements, late fees, "
+                "and disputes before deleting your account.", 409
+            )
+
+        # Keep IDs and transaction history intact for the other rental party.
+        # The original email and student ID are replaced with non-reusable markers.
+        anonymous_id = f"deleted-{user_id}"
+        connection.execute(
+            """
+            UPDATE users
+            SET name = 'Deleted student', email = ?, student_id = ?,
+                password = ?, email_verified = 0, suspended = 1,
+                notification_emails_enabled = 0, deleted_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND deleted_at IS NULL
+            """,
+            (f"{anonymous_id}@invalid.example", anonymous_id,
+             generate_password_hash(uuid.uuid4().hex), user_id),
+        )
+        listing_images = [
+            image[0] for image in connection.execute(
+                "SELECT image_path FROM equipment WHERE owner_id = ? "
+                "AND image_path IS NOT NULL", (user_id,),
+            ).fetchall()
+        ]
+        connection.execute(
+            "UPDATE equipment SET is_removed = 1, image_path = NULL "
+            "WHERE owner_id = ?", (user_id,),
+        )
+        connection.execute(
+            "UPDATE messages SET message_text = '[Message removed]' "
+            "WHERE sender_id = ? OR receiver_id = ?",
+            (user_id, user_id),
+        )
+        connection.execute(
+            "UPDATE ratings SET comment = NULL WHERE rater_id = ?",
+            (user_id,),
+        )
+        connection.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
+        connection.execute(
+            "DELETE FROM login_attempts WHERE email = ?",
+            (account[3],),
+        )
+        connection.execute("DELETE FROM verification_email_attempts WHERE email = ?", (account[3],))
+        connection.commit()
+    finally:
+        connection.close()
+
+    for image_path in listing_images:
+        delete_equipment_image(image_path)
+    session.clear()
+    log_security_event("account_deleted", actor_id=user_id)
+    return redirect(url_for("home"))
+
+
 @app.route("/notifications")
 def notifications():
 
@@ -3366,7 +3605,7 @@ def forgot_password():
 
         user = connection.execute(
             """
-            SELECT id, email
+            SELECT id, email, password
             FROM users
             WHERE LOWER(email) = ?
             """,
@@ -3376,10 +3615,20 @@ def forgot_password():
         connection.close()
 
         if user:
+            password_fingerprint = hmac.new(
+                current_app.secret_key.encode("utf-8"),
+                user[2].encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+
             token = serializer.dumps(
-                user[1],
-                salt="password-reset-salt"
+                {
+                    "email": user[1],
+                    "password_fingerprint": password_fingerprint,
+                },
+                salt="password-reset-salt",
             )
+
             reset_url = url_for(
                 "reset_password",
                 token=token,
@@ -3407,7 +3656,7 @@ def forgot_password():
 def reset_password(token):
 
     try:
-        email = serializer.loads(
+        reset_data = serializer.loads(
             token,
             salt="password-reset-salt",
             max_age=1800
@@ -3423,6 +3672,45 @@ def reset_password(token):
             "Invalid password reset link.", 400, "Invalid reset link"
         )
 
+    if (
+        not isinstance(reset_data, dict)
+        or not isinstance(reset_data.get("email"), str)
+        or not isinstance(reset_data.get("password_fingerprint"), str)
+    ):
+        return error_response(
+            "Invalid password reset link.", 400, "Invalid reset link"
+        )
+
+    email = reset_data["email"].lower()
+
+    connection = connect_database(application.DATABASE, timeout=30)
+    user = connection.execute(
+        "SELECT id, password FROM users WHERE LOWER(email) = ?",
+        (email,),
+    ).fetchone()
+    connection.close()
+
+    if user is None:
+        return error_response(
+            "Invalid password reset link.", 400, "Invalid reset link"
+        )
+
+    expected_fingerprint = hmac.new(
+        current_app.secret_key.encode("utf-8"),
+        user[1].encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(
+        reset_data["password_fingerprint"],
+        expected_fingerprint,
+    ):
+        return error_response(
+            "This password reset link is no longer valid.",
+            400,
+            "Reset link invalid",
+        )
+
     if request.method == "POST":
 
         password = request.form["password"]
@@ -3435,23 +3723,28 @@ def reset_password(token):
             return error_response(password_validation_error)
 
         hashed_password = generate_password_hash(password)
-
         connection = connect_database(application.DATABASE, timeout=30)
-
-        connection.execute(
+        result = connection.execute(
             """
             UPDATE users
             SET password = ?
-            WHERE LOWER(email) = ?
+            WHERE LOWER(email) = ? AND password = ?
             """,
-            (
-                hashed_password,
-                email.lower()
-            )
+            (hashed_password, email, user[1]),
         )
+
+        if result.rowcount != 1:
+            connection.rollback()
+            connection.close()
+            return error_response(
+                "This password reset link is no longer valid.",
+                400,
+                "Reset link invalid",
+            )
 
         connection.commit()
         connection.close()
+
 
         return redirect(
             url_for("login", reset="1")
@@ -4153,10 +4446,10 @@ def confirm_deposit(request_id):
             "You cannot confirm this deposit.", 403
         )
 
-    if rental[1] not in {"Approved", "Overdue"} or rental[2] != "Paid":
+    if rental[1] != "Pending" or rental[2] != "Paid":
         connection.close()
         return error_response(
-            "The rental must be approved and paid "
+            "The rental must be pending and paid "
             "before confirming its deposit.",
             400
         )
@@ -4172,7 +4465,7 @@ def confirm_deposit(request_id):
         UPDATE borrowing_requests
         SET deposit_status = 'Held'
         WHERE id = ?
-          AND status IN ('Approved', 'Overdue')
+          AND status = 'Pending'
           AND payment_status = 'Paid'
           AND deposit_status = 'Pending'
         """,

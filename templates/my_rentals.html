@@ -423,6 +423,17 @@
             <!-- RENTAL STATUS -->
             {% if rental[5] in ("Approved", "Overdue") %}
 
+                {% if rental[33] %}
+                    {% if rental[34] %}
+                        <p>✅ Ready for handover confirmed. Waiting for the owner to hand over equipment.</p>
+                    {% else %}
+                        <p>✅ Request approved. Confirm readiness when you are ready to collect the equipment.</p>
+                        <form method="POST" action="{{ url_for('ready_for_handover', request_id=rental[0]) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="dashboard-main-button">I'm Ready for Handover</button>
+                        </form>
+                    {% endif %}
+                {% else %}
                 <p style="margin-top: 20px;">
 
                     {% if rental[5] == "Overdue" %}
@@ -433,7 +444,8 @@
 
                 </p>
 
-                {% if rental[17] < 0 %}
+                {% endif %}
+                {% if rental[17] is not none and rental[17] < 0 %}
 
                     <p>
                         <strong>

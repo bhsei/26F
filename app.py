@@ -269,6 +269,7 @@ def init_db():
                 email_verified INTEGER NOT NULL DEFAULT 0,
                 role TEXT NOT NULL DEFAULT 'user',
                 suspended INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
                 notification_emails_enabled
                     INTEGER NOT NULL DEFAULT 0
             )
@@ -278,6 +279,7 @@ def init_db():
             "email_verified": "INTEGER NOT NULL DEFAULT 1",
             "role": "TEXT NOT NULL DEFAULT 'user'",
             "suspended": "INTEGER NOT NULL DEFAULT 0",
+            "deleted_at": "TEXT",
             "notification_emails_enabled":
                 "INTEGER NOT NULL DEFAULT 0"
         })
@@ -517,7 +519,10 @@ def init_db():
 "meetup_borrower_verified_at": "TEXT",
 "inspection_rejected_by": "INTEGER",
 "inspection_rejection_reason": "TEXT NOT NULL DEFAULT ''",
-"inspection_rejected_at": "TEXT"
+"inspection_rejected_at": "TEXT",
+"awaiting_handover": "INTEGER NOT NULL DEFAULT 0",
+"borrower_ready_at": "TEXT",
+"handed_over_at": "TEXT"
 
             }
         )

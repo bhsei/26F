@@ -319,7 +319,7 @@
 
 {% endif %}
             </div>
-{% if request[5] in ("Approved", "Overdue")
+{% if request[5] == "Pending"
     and request[6] == "Paid"
     and request[7] == "Pending" %}
 
@@ -620,6 +620,7 @@
 
 {% if request[5] == "Pending"
       and request[6] == "Paid"
+      and (request[8] <= 0 or request[7] == "Held")
       and request[23] == "Confirmed"
       and request[26] is not none
       and request[27] is not none %}
@@ -639,12 +640,12 @@
         type="submit"
         class="dashboard-main-button"
     >
-        Confirm Equipment Handover
+        Approve Borrowing Request
     </button>
 </form>
 
 {% endif %}
-{% if request[6] == "Unpaid" %}
+{% if request[6] in ("Unpaid", "Paid") %}
 <form
     method="POST"
     action="/requests/{{ request[0] }}/reject"
@@ -655,13 +656,24 @@
         type="submit"
         class="secondary-button"
     >
-        Reject
+        {{ "Reject and Refund" if request[6] == "Paid" else "Reject" }}
     </button>
 </form>
 {% endif %}
 
 {% elif request[5] in ("Approved", "Overdue") %}
 
+{% if request[28] %}
+    {% if request[29] %}
+        <p>✅ Borrower is ready. Confirm only after physically handing over the equipment.</p>
+        <form method="POST" action="{{ url_for('confirm_handover', request_id=request[0]) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="dashboard-main-button">Confirm Equipment Handover</button>
+        </form>
+    {% else %}
+        <p>⏳ Request approved. Waiting for borrower readiness before physical handover.</p>
+    {% endif %}
+{% else %}
 <p>
     {% if request[5] == "Overdue" %}
     ⚠️ This rental is overdue. The agreed return date has passed.
@@ -682,6 +694,7 @@
         Mark as Returned
     </button>
 </form>
+{% endif %}
 
 {% elif request[5] == "Completed" %}
 

@@ -141,10 +141,14 @@ class RentalWorkflowTests(unittest.TestCase):
         return data
 
     def test_borrower_request_approval_and_demo_payment(self):
+        from datetime import timedelta
         self.sign_in_as(self.borrower_id)
         response = self.client.post(
             f"/request-equipment/{self.equipment_id}",
-            data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                        data={
+                "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
         )
         self.assertEqual(response.status_code, 302)
         with self.database_connection() as connection:
@@ -276,17 +280,27 @@ class RentalWorkflowTests(unittest.TestCase):
 
         self.sign_in_as(self.owner_id)
 
-        # Owner confirms handover after demo payment
-        response = self.client.post(
-            f"/requests/{request_id}/approve"
-        )
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            self.get_request(request_id)[0],
-            "Approved",
-        )
+        # Approval is not allowed until a required deposit is held.
+        response = self.client.post(f"/requests/{request_id}/approve")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.get_request(request_id)[0], "Pending")
 
         response = self.client.post(f"/confirm-deposit/{request_id}")
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.post(f"/requests/{request_id}/approve")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.get_request(request_id)[0], "Approved")
+        # Approval alone does not permit returns or handover.
+        response = self.client.post(f"/requests/{request_id}/complete")
+        self.assertEqual(response.status_code, 409)
+        response = self.client.post(f"/requests/{request_id}/confirm-handover")
+        self.assertEqual(response.status_code, 409)
+        self.sign_in_as(self.borrower_id)
+        response = self.client.post(f"/rentals/{request_id}/ready-for-handover")
+        self.assertEqual(response.status_code, 302)
+        self.sign_in_as(self.owner_id)
+        response = self.client.post(f"/requests/{request_id}/confirm-handover")
         self.assertEqual(response.status_code, 302)
         response = self.client.post(f"/requests/{request_id}/complete")
         self.assertEqual(response.status_code, 302)
@@ -315,6 +329,78 @@ class RentalWorkflowTests(unittest.TestCase):
                     "Your rental of Camera has been marked returned.",
                 ),
             )
+
+    def test_deposit_requires_paid_pending_request_and_can_only_be_held_once(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                """INSERT INTO borrowing_requests
+                   (equipment_id, borrower_id, start_date, end_date,
+                    payment_status, deposit_status, status)
+                   VALUES (?, ?, '2026-11-08', '2026-11-09',
+                           'Unpaid', 'Pending', 'Pending')""",
+                (self.equipment_id, self.borrower_id),
+            )
+            request_id = connection.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0]
+
+        self.sign_in_as(self.owner_id)
+        self.assertEqual(
+            self.client.post(f"/confirm-deposit/{request_id}").status_code, 400
+        )
+        with self.database_connection() as connection:
+            connection.execute(
+                "UPDATE borrowing_requests SET payment_status = 'Paid' WHERE id = ?",
+                (request_id,),
+            )
+        self.assertEqual(
+            self.client.post(f"/confirm-deposit/{request_id}").status_code, 302
+        )
+        self.assertEqual(
+            self.client.post(f"/confirm-deposit/{request_id}").status_code, 409
+        )
+        with self.database_connection() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT status, deposit_status FROM borrowing_requests WHERE id = ?",
+                (request_id,),
+            ).fetchone(), ("Pending", "Held"))
+
+    def test_handover_roles_and_replay_are_enforced(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                """INSERT INTO borrowing_requests (
+                   equipment_id, borrower_id, start_date, end_date, status,
+                   payment_status, deposit_status, awaiting_handover)
+                   VALUES (?, ?, '2026-11-07', '2026-11-08',
+                           'Approved', 'Paid', 'Held', 1)""",
+                (self.equipment_id, self.borrower_id),
+            )
+            request_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+        self.sign_in_as(self.owner_id)
+        self.assertEqual(self.client.post(
+            f"/rentals/{request_id}/ready-for-handover").status_code, 403)
+        self.assertEqual(self.client.post(
+            f"/requests/{request_id}/confirm-handover").status_code, 409)
+        self.sign_in_as(self.borrower_id)
+        self.assertEqual(self.client.post(
+            f"/rentals/{request_id}/ready-for-handover").status_code, 302)
+        self.assertEqual(self.client.post(
+            f"/rentals/{request_id}/ready-for-handover").status_code, 409)
+        self.assertEqual(self.client.post(
+            f"/requests/{request_id}/confirm-handover").status_code, 403)
+        self.sign_in_as(self.owner_id)
+        self.assertEqual(self.client.post(
+            f"/requests/{request_id}/confirm-handover").status_code, 302)
+        self.assertEqual(self.client.post(
+            f"/requests/{request_id}/confirm-handover").status_code, 409)
+        with self.database_connection() as connection:
+            waiting, ready, handed = connection.execute(
+                """SELECT awaiting_handover, borrower_ready_at, handed_over_at
+                   FROM borrowing_requests WHERE id = ?""", (request_id,)
+            ).fetchone()
+        self.assertEqual(waiting, 0)
+        self.assertIsNotNone(ready)
+        self.assertIsNotNone(handed)
 
     def test_hourly_request_rounds_up_and_requires_one_hour_minimum(self):
         self.sign_in_as(self.borrower_id)
@@ -595,6 +681,64 @@ class RentalWorkflowTests(unittest.TestCase):
                     "SELECT id FROM equipment WHERE item_name = 'Tripod'"
                 ).fetchone()
             )
+
+    def test_listing_cannot_be_edited_during_active_rental(self):
+        for status in ("Pending", "Approved", "Overdue"):
+            with self.subTest(status=status):
+                with self.database_connection() as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO borrowing_requests (
+                            equipment_id, borrower_id, start_date, end_date, status
+                        ) VALUES (?, ?, '2026-11-10', '2026-11-11', ?)
+                        """,
+                        (self.equipment_id, self.borrower_id, status),
+                    )
+                    request_id = connection.execute(
+                        "SELECT last_insert_rowid()"
+                    ).fetchone()[0]
+                self.sign_in_as(self.owner_id)
+                self.assertEqual(
+                    self.client.get(f"/edit-listing/{self.equipment_id}").status_code,
+                    409,
+                )
+                response = self.client.post(
+                    f"/edit-listing/{self.equipment_id}",
+                    data=self.listing_form_data(item_name="Changed camera"),
+                )
+                self.assertEqual(response.status_code, 409)
+                with self.database_connection() as connection:
+                    name = connection.execute(
+                        "SELECT item_name FROM equipment WHERE id = ?",
+                        (self.equipment_id,),
+                    ).fetchone()[0]
+                    connection.execute(
+                        "DELETE FROM borrowing_requests WHERE id = ?", (request_id,)
+                    )
+                self.assertEqual(name, "Camera")
+
+    def test_listing_can_be_edited_after_rental_completes(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO borrowing_requests (
+                    equipment_id, borrower_id, start_date, end_date, status
+                ) VALUES (?, ?, '2026-11-10', '2026-11-11', 'Completed')
+                """,
+                (self.equipment_id, self.borrower_id),
+            )
+        self.sign_in_as(self.owner_id)
+        response = self.client.post(
+            f"/edit-listing/{self.equipment_id}",
+            data=self.listing_form_data(item_name="Updated camera"),
+        )
+        self.assertEqual(response.status_code, 302)
+        with self.database_connection() as connection:
+            name = connection.execute(
+                "SELECT item_name FROM equipment WHERE id = ?",
+                (self.equipment_id,),
+            ).fetchone()[0]
+        self.assertEqual(name, "Updated camera")
 
     def test_edit_listing_rejects_past_availability_start_date(self):
         self.sign_in_as(self.owner_id)
@@ -880,10 +1024,14 @@ class RentalWorkflowTests(unittest.TestCase):
             )
 
     def test_owner_can_reject_pending_request(self):
+        from datetime import timedelta
         self.sign_in_as(self.borrower_id)
         response = self.client.post(
             f"/request-equipment/{self.equipment_id}",
-            data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                        data={
+                "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
         )
         self.assertEqual(response.status_code, 302)
 
@@ -902,6 +1050,75 @@ class RentalWorkflowTests(unittest.TestCase):
                     "SELECT user_id, message FROM notifications ORDER BY id DESC"
                 ).fetchone(),
                 (self.borrower_id, "Your request for Camera was rejected."),
+            )
+
+    def test_paid_pending_rejection_refunds_payment_and_held_deposit(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO borrowing_requests (
+                    equipment_id, borrower_id, start_date, end_date,
+                    status, payment_status, deposit_status
+                ) VALUES (?, ?, '2026-12-01', '2026-12-02',
+                          'Pending', 'Paid', 'Held')
+                """,
+                (self.equipment_id, self.borrower_id),
+            )
+            rental_id = connection.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0]
+
+        self.sign_in_as(self.owner_id)
+        response = self.client.post(f"/requests/{rental_id}/reject")
+        self.assertEqual(response.status_code, 302)
+        with self.database_connection() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status, payment_status, deposit_status "
+                    "FROM borrowing_requests WHERE id = ?", (rental_id,)
+                ).fetchone(),
+                ("Rejected", "Refunded", "Refunded"),
+            )
+            notice = connection.execute(
+                "SELECT message FROM notifications WHERE user_id = ? "
+                "ORDER BY id DESC LIMIT 1", (self.borrower_id,)
+            ).fetchone()[0]
+            self.assertIn("marked refunded", notice)
+
+        # Repeated rejection must not issue another refund or notification.
+        repeated = self.client.post(f"/requests/{rental_id}/reject")
+        self.assertEqual(repeated.status_code, 404)
+        with self.database_connection() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT COUNT(*) FROM notifications WHERE user_id = ?",
+                    (self.borrower_id,),
+                ).fetchone()[0],
+                1,
+            )
+
+    def test_non_owner_cannot_reject_paid_pending_request(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO borrowing_requests (
+                    equipment_id, borrower_id, start_date, end_date,
+                    status, payment_status, deposit_status
+                ) VALUES (?, ?, '2026-12-01', '2026-12-02',
+                          'Pending', 'Paid', 'Held')
+                """, (self.equipment_id, self.borrower_id),
+            )
+            rental_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+        self.sign_in_as(self.borrower_id)
+        response = self.client.post(f"/requests/{rental_id}/reject")
+        self.assertEqual(response.status_code, 404)
+        with self.database_connection() as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT status, payment_status, deposit_status "
+                    "FROM borrowing_requests WHERE id = ?", (rental_id,)
+                ).fetchone(),
+                ("Pending", "Paid", "Held"),
             )
 
     def test_rental_status_routes_reject_disallowed_transitions(self):
@@ -930,7 +1147,15 @@ class RentalWorkflowTests(unittest.TestCase):
                     request_id = connection.execute(
                         "SELECT last_insert_rowid()"
                     ).fetchone()[0]
-
+                    if initial_status == "Approved":
+                        connection.execute(
+                            "UPDATE borrowing_requests SET start_date = ?, end_date = ? WHERE id = ?",
+                            (
+                                (date.today() + timedelta(days=1)).isoformat(),
+                                (date.today() + timedelta(days=2)).isoformat(),
+                                request_id,
+                            ),
+                        )
                 for action in actions:
                     with self.subTest(action=action):
                         response = self.client.post(
@@ -996,6 +1221,157 @@ class RentalWorkflowTests(unittest.TestCase):
         recipient, reset_url = send_email.call_args.args
         self.assertEqual(recipient, "borrower@test.example")
         self.assertIn("/reset-password/", reset_url)
+
+    def test_password_reset_link_can_only_be_used_once(self):
+        with self.database_connection() as connection:
+            original_hash = connection.execute(
+                "SELECT password FROM users WHERE email = ?",
+                ("borrower@test.example",),
+            ).fetchone()[0]
+
+        with patch("campusshare_routes.send_password_reset_email") as send_email:
+            response = self.client.post(
+                "/forgot-password",
+                data={"email": "borrower@test.example"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        send_email.assert_called_once()
+
+        reset_url = send_email.call_args.args[1]
+        token = reset_url.rsplit("/", 1)[-1]
+        reset_path = f"/reset-password/{token}"
+
+        # The unused link must work.
+        response = self.client.get(reset_path)
+        self.assertEqual(response.status_code, 200)
+
+        response = self.client.post(
+            reset_path,
+            data={
+                "password": "CampusReset2026!Secure",
+                "confirm_password": "CampusReset2026!Secure",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        with self.database_connection() as connection:
+            updated_hash = connection.execute(
+                "SELECT password FROM users WHERE email = ?",
+                ("borrower@test.example",),
+            ).fetchone()[0]
+
+        self.assertNotEqual(original_hash, updated_hash)
+
+        # A used link must be rejected.
+        response = self.client.get(reset_path)
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            reset_path,
+            data={
+                "password": "AnotherCampusReset2026!",
+                "confirm_password": "AnotherCampusReset2026!",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
+        # Reusing the link must not change the password.
+        with self.database_connection() as connection:
+            final_hash = connection.execute(
+                "SELECT password FROM users WHERE email = ?",
+                ("borrower@test.example",),
+            ).fetchone()[0]
+
+        self.assertEqual(final_hash, updated_hash)
+    def test_invalid_password_reset_link_is_rejected(self):
+        response = self.client.get(
+            "/reset-password/not-a-valid-token"
+        )
+        self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            "/reset-password/not-a-valid-token",
+            data={
+                "password": "NewSecurePassword123!",
+                "confirm_password": "NewSecurePassword123!",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_expired_password_reset_link_is_rejected(self):
+        from campusshare_routes import serializer
+
+        # Create a reset link with an old timestamp.
+        with patch("itsdangerous.timed.time.time", return_value=1600000000):
+            token = serializer.dumps(
+                {
+                    "email": "borrower@test.example",
+                    "password_fingerprint": "expired-test",
+                },
+                salt="password-reset-salt",
+            )
+
+        response = self.client.get(f"/reset-password/{token}")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"expired", response.data.lower())
+
+        response = self.client.post(
+            f"/reset-password/{token}",
+            data={
+                "password": "NewSecurePassword123!",
+                "confirm_password": "NewSecurePassword123!",
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_password_reset_rejects_competing_password_change(self):
+        with patch("campusshare_routes.send_password_reset_email") as send_email:
+            response = self.client.post(
+                "/forgot-password",
+                data={"email": "borrower@test.example"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        send_email.assert_called_once()
+
+        token = send_email.call_args.args[1].rsplit("/", 1)[-1]
+        reset_path = f"/reset-password/{token}"
+
+        competing_hash = generate_password_hash("OtherSecurePassword2026!")
+        requested_hash = generate_password_hash("CampusReset2026!Secure")
+
+        def change_password_before_save(password):
+            with self.database_connection() as connection:
+                connection.execute(
+                    "UPDATE users SET password = ? WHERE email = ?",
+                    (competing_hash, "borrower@test.example"),
+                )
+            return requested_hash
+
+        with patch(
+            "campusshare_routes.generate_password_hash",
+            side_effect=change_password_before_save,
+        ):
+            response = self.client.post(
+                reset_path,
+                data={
+                    "password": "CampusReset2026!Secure",
+                    "confirm_password": "CampusReset2026!Secure",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+
+        with self.database_connection() as connection:
+            final_hash = connection.execute(
+                "SELECT password FROM users WHERE email = ?",
+                ("borrower@test.example",),
+            ).fetchone()[0]
+
+        self.assertEqual(final_hash, competing_hash)
+        self.assertNotEqual(final_hash, requested_hash)
+        self.assertEqual(self.client.get(reset_path).status_code, 400)
 
     def test_registration_requires_verification_before_login(self):
         with patch("campusshare_routes.send_verification_email") as send_email:
@@ -1177,7 +1553,28 @@ class RentalWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(send_email.call_count, 3)
 
+    def test_verification_resends_limited_across_different_ips(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                "UPDATE users SET email_verified = 0 WHERE id = ?",
+                (self.borrower_id,),
+            )
+
+        with patch("campusshare_routes.send_verification_email") as send_email:
+            for number in range(4):
+                response = self.client.post(
+                    "/resend-verification",
+                    data={"email": "borrower@test.example"},
+                    environ_overrides={
+                        "REMOTE_ADDR": f"192.0.2.{number + 1}"
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(send_email.call_count, 3)
+
     def test_login_throttles_repeated_failures_and_clears_after_success(self):
+
         login_data = {
             "email": "borrower@test.example",
             "password": "incorrect-password",
@@ -1236,7 +1633,10 @@ class RentalWorkflowTests(unittest.TestCase):
             self.sign_in_as(self.borrower_id)
             request_response = self.client.post(
                 f"/request-equipment/{self.equipment_id}",
-                data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                                data={
+                    "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                    "end_date": (date.today() + timedelta(days=2)).isoformat(),
+                },
             )
             self.assertEqual(request_response.status_code, 302)
             with self.database_connection() as connection:
@@ -1261,16 +1661,21 @@ class RentalWorkflowTests(unittest.TestCase):
                     (request_id,),
                 )
 
-            # Owner confirms the handover
-            approval_response = self.client.post(
-                f"/requests/{request_id}/approve"
-            )
-            self.assertEqual(approval_response.status_code, 302)
-
             deposit_response = self.client.post(
                 f"/confirm-deposit/{request_id}"
             )
             self.assertEqual(deposit_response.status_code, 302)
+
+            approval_response = self.client.post(
+                f"/requests/{request_id}/approve"
+            )
+            self.assertEqual(approval_response.status_code, 302)
+            self.sign_in_as(self.borrower_id)
+            self.assertEqual(self.client.post(
+                f"/rentals/{request_id}/ready-for-handover").status_code, 302)
+            self.sign_in_as(self.owner_id)
+            self.assertEqual(self.client.post(
+                f"/requests/{request_id}/confirm-handover").status_code, 302)
             with self.database_connection() as connection:
                 connection.execute(
                     """
@@ -1598,7 +2003,10 @@ class RentalWorkflowTests(unittest.TestCase):
         self.sign_in_as(self.borrower_id)
         response = self.client.post(
             f"/request-equipment/{self.equipment_id}",
-            data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                        data={
+                "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
         )
         self.assertEqual(response.status_code, 404)
 
@@ -1874,7 +2282,10 @@ class RentalWorkflowTests(unittest.TestCase):
         self.sign_in_as(self.borrower_id)
         self.client.post(
             f"/request-equipment/{self.equipment_id}",
-            data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                        data={
+                "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
         )
         with self.database_connection() as connection:
             request_id = connection.execute(
@@ -2478,10 +2889,19 @@ class RentalWorkflowTests(unittest.TestCase):
 
     def test_non_owner_cannot_approve_and_pending_history_blocks_listing_delete(self):
         self.sign_in_as(self.borrower_id)
-        self.client.post(
+        response = self.client.post(
             f"/request-equipment/{self.equipment_id}",
-            data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                        data={
+                "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                "end_date": (date.today() + timedelta(days=2)).isoformat(),
+            },
         )
+        self.assertEqual(
+            response.status_code,
+            302,
+            response.get_data(as_text=True)[:2000],
+        )
+
         with self.database_connection() as connection:
             request_id = connection.execute(
                 "SELECT id FROM borrowing_requests"
@@ -2789,7 +3209,10 @@ class RentalWorkflowTests(unittest.TestCase):
         with patch("notification_utils.send_notification_email") as send_email:
             response = self.client.post(
                 f"/request-equipment/{self.equipment_id}",
-                data={"start_date": "2026-11-01", "end_date": "2026-11-02"},
+                                data={
+                    "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                    "end_date": (date.today() + timedelta(days=2)).isoformat(),
+                },
             )
             self.assertEqual(response.status_code, 302)
             send_email.assert_not_called()
@@ -2827,6 +3250,7 @@ class RentalWorkflowTests(unittest.TestCase):
                         meetup_status = 'Confirmed',
                         meetup_owner_verified_at = CURRENT_TIMESTAMP,
                         meetup_borrower_verified_at = CURRENT_TIMESTAMP,
+                        deposit_status = 'Held',
                         inspection_rejected_at = NULL
                     WHERE id = ?
                     """,
@@ -2836,9 +3260,10 @@ class RentalWorkflowTests(unittest.TestCase):
             response = self.client.post(f"/requests/{request_id}/approve")
             self.assertEqual(response.status_code, 302)
 
-            send_email.assert_called_once_with(
-                "borrower@test.example",
-                "The owner confirmed the equipment handover for Camera.",
+            self.assertIn(
+                ("borrower@test.example",
+                 "Your borrowing request for Camera was approved. Confirm that you are ready for handover."),
+                [call.args for call in send_email.call_args_list],
             )
 
 
@@ -2861,9 +3286,9 @@ class RentalWorkflowTests(unittest.TestCase):
             with self.assertLogs("notification_utils", level="ERROR") as logs:
                 response = self.client.post(
                     f"/request-equipment/{self.equipment_id}",
-                    data={
-                        "start_date": "2026-11-01",
-                        "end_date": "2026-11-02",
+                                      data={
+                        "start_date": (date.today() + timedelta(days=1)).isoformat(),
+                        "end_date": (date.today() + timedelta(days=2)).isoformat(),
                     },
                 )
         self.assertEqual(response.status_code, 302)
@@ -3190,6 +3615,122 @@ class RentalWorkflowTests(unittest.TestCase):
                 connection.execute("SELECT COUNT(*) FROM equipment").fetchone()[0],
                 1,
             )
+
+    def test_account_deletion_requires_password_and_confirm_word(self):
+        self.sign_in_as(self.borrower_id)
+        self.assertEqual(self.client.get("/account/delete").status_code, 200)
+        self.assertEqual(self.client.post("/account/delete", data={
+            "password": "wrong", "confirmation": "DELETE",
+        }).status_code, 403)
+        self.assertEqual(self.client.post("/account/delete", data={
+            "password": "test-password-long", "confirmation": "delete",
+        }).status_code, 400)
+        with self.database_connection() as connection:
+            self.assertIsNone(connection.execute(
+                "SELECT deleted_at FROM users WHERE id = ?", (self.borrower_id,)
+            ).fetchone()[0])
+
+    def test_account_deletion_blocks_open_rentals_and_preserves_completed_history(self):
+        with self.database_connection() as connection:
+            connection.execute(
+                "INSERT INTO borrowing_requests "
+                "(equipment_id, borrower_id, start_date, end_date, status) "
+                "VALUES (?, ?, '2026-11-01', '2026-11-02', 'Pending')",
+                (self.equipment_id, self.borrower_id),
+            )
+        self.sign_in_as(self.borrower_id)
+        delete_form = {"password": "test-password-long", "confirmation": "DELETE"}
+        self.assertEqual(self.client.post("/account/delete", data=delete_form).status_code, 409)
+        with self.database_connection() as connection:
+            connection.execute("UPDATE borrowing_requests SET status = 'Completed'")
+            connection.execute(
+                "INSERT INTO messages (sender_id, receiver_id, message_text) "
+                "VALUES (?, ?, 'private note')", (self.borrower_id, self.owner_id),
+            )
+        self.assertEqual(self.client.post("/account/delete", data=delete_form).status_code, 302)
+        with self.database_connection() as connection:
+            user = connection.execute(
+                "SELECT email, student_id, suspended, deleted_at FROM users WHERE id = ?",
+                (self.borrower_id,),
+            ).fetchone()
+            self.assertNotEqual(user[0], "borrower@test.example")
+            self.assertNotEqual(user[1], "borrower-1")
+            self.assertEqual(user[2], 1)
+            self.assertIsNotNone(user[3])
+            self.assertEqual(connection.execute(
+                "SELECT COUNT(*) FROM borrowing_requests WHERE borrower_id = ?",
+                (self.borrower_id,),
+            ).fetchone()[0], 1)
+            self.assertEqual(connection.execute(
+                "SELECT message_text FROM messages WHERE sender_id = ?",
+                (self.borrower_id,),
+            ).fetchone()[0], "[Message removed]")
+        self.assertEqual(self.client.get("/dashboard").status_code, 302)
+
+    def test_retention_cleanup_previews_without_changing_rows(self):
+        from retention_cleanup import cleanup_database
+        with self.database_connection() as connection:
+            connection.execute(
+                "INSERT INTO login_attempts (email, ip_address, attempted_at) "
+                "VALUES ('old@test.example', '127.0.0.1', '2020-01-01')"
+            )
+        counts = cleanup_database(campusshare.DATABASE, apply=False)
+        self.assertEqual(counts["login_attempts"], 1)
+        with self.database_connection() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT COUNT(*) FROM login_attempts"
+            ).fetchone()[0], 1)
+
+    def test_retention_cleanup_applies_only_eligible_rows(self):
+        from retention_cleanup import cleanup_database
+        with self.database_connection() as connection:
+            connection.execute(
+                "INSERT INTO messages (sender_id, receiver_id, message_text, created_at) "
+                "VALUES (?, ?, 'old message', '2020-01-01')",
+                (self.owner_id, self.borrower_id),
+            )
+            connection.execute(
+                "INSERT INTO messages (sender_id, receiver_id, message_text, created_at) "
+                "VALUES (?, ?, 'recent message', '2026-11-01')",
+                (self.owner_id, self.borrower_id),
+            )
+            connection.execute(
+                "INSERT INTO borrowing_requests "
+                "(equipment_id, borrower_id, start_date, end_date, status, "
+                "damage_report, damage_dispute_status) "
+                "VALUES (?, ?, '2020-01-01', '2020-01-03', 'Completed', "
+                "'private history', 'Not Disputed')",
+                (self.equipment_id, self.borrower_id),
+            )
+            completed_id = connection.execute(
+                "SELECT max(id) FROM borrowing_requests"
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO borrowing_requests "
+                "(equipment_id, borrower_id, start_date, end_date, status, "
+                "damage_report, damage_dispute_status) "
+                "VALUES (?, ?, '2020-01-01', '2020-01-03', 'Completed', "
+                "'keep pending evidence', 'Pending')",
+                (self.equipment_id, self.borrower_id),
+            )
+        counts = cleanup_database(campusshare.DATABASE, apply=True)
+        self.assertEqual(counts["messages"], 1)
+        self.assertEqual(counts["old_rental_details_redacted"], 1)
+        with self.database_connection() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT message_text FROM messages"
+            ).fetchall(), [("recent message",)])
+            self.assertEqual(connection.execute(
+                "SELECT damage_report FROM borrowing_requests WHERE id = ?",
+                (completed_id,),
+            ).fetchone()[0], "")
+            self.assertEqual(connection.execute(
+                "SELECT damage_report FROM borrowing_requests "
+                "WHERE damage_dispute_status = 'Pending'"
+            ).fetchone()[0], "keep pending evidence")
+            self.assertEqual(connection.execute(
+                "SELECT COUNT(*) FROM borrowing_requests"
+            ).fetchone()[0], 2)
 
     def test_unknown_url_uses_styled_not_found_page(self):
         response = self.client.get("/does-not-exist")

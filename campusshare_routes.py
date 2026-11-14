@@ -93,54 +93,98 @@ def enforce_account_status():
 
 
 @app.before_request
+
 def mark_overdue_rentals():
     connection = connect_database(application.DATABASE, timeout=30)
     connection.execute("PRAGMA busy_timeout = 30000")
-    connection.execute("BEGIN IMMEDIATE")
-    overdue_rentals = connection.execute(
-        """
-        SELECT borrowing_requests.id, borrowing_requests.borrower_id,
-               equipment.item_name
-        FROM borrowing_requests
-        JOIN equipment ON borrowing_requests.equipment_id = equipment.id
-        WHERE borrowing_requests.status IN ('Approved', 'Overdue')
-          AND borrowing_requests.awaiting_handover = 0
-          AND date(borrowing_requests.end_date) < date('now', 'localtime')
-        """
-    ).fetchall()
 
-    for request_id, borrower_id, item_name in overdue_rentals:
-        connection.execute(
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+
+        overdue_rentals = connection.execute(
             """
-            UPDATE borrowing_requests
-            SET status = 'Overdue'
-            WHERE id = ?
-              AND status = 'Approved'
-              AND awaiting_handover = 0
-              AND date(end_date) < date('now', 'localtime')
-            """,
-            (request_id,),
-        )
-        reminder = connection.execute(
+            SELECT borrowing_requests.id,
+                   borrowing_requests.borrower_id,
+                   equipment.item_name
+            FROM borrowing_requests
+            JOIN equipment
+              ON borrowing_requests.equipment_id = equipment.id
+            WHERE borrowing_requests.status IN ('Approved', 'Overdue')
+              AND borrowing_requests.awaiting_handover = 0
+              AND (
+                  (
+                      borrowing_requests.price_unit = 'hour'
+                      AND borrowing_requests.end_time IS NOT NULL
+                      AND datetime(
+                          borrowing_requests.end_date || ' ' ||
+                          borrowing_requests.end_time
+                      ) < datetime('now', 'localtime')
+                  )
+                  OR
+                  (
+                      COALESCE(
+                          borrowing_requests.price_unit, 'day'
+                      ) <> 'hour'
+                      AND date(borrowing_requests.end_date)
+                          < date('now', 'localtime')
+                  )
+              )
             """
-            INSERT OR IGNORE INTO rental_reminders (
-                borrowing_request_id, reminder_type
-            )
-            VALUES (?, 'rental_overdue')
-            """,
-            (request_id,),
-        )
-        if reminder.rowcount:
-            add_notification(
-                connection,
-                borrower_id,
-                f"Your rental of {item_name} is overdue. Please return it "
-                "as soon as possible.",
-                url_for("my_rentals"),
+        ).fetchall()
+
+        for request_id, borrower_id, item_name in overdue_rentals:
+            connection.execute(
+                """
+                UPDATE borrowing_requests
+                SET status = 'Overdue'
+                WHERE id = ?
+                  AND status = 'Approved'
+                  AND awaiting_handover = 0
+                  AND (
+                      (
+                          price_unit = 'hour'
+                          AND end_time IS NOT NULL
+                          AND datetime(end_date || ' ' || end_time)
+                              < datetime('now', 'localtime')
+                      )
+                      OR
+                      (
+                          COALESCE(price_unit, 'day') <> 'hour'
+                          AND date(end_date)
+                              < date('now', 'localtime')
+                      )
+                  )
+                """,
+                (request_id,),
             )
 
-    connection.commit()
-    connection.close()
+            reminder = connection.execute(
+                """
+                INSERT OR IGNORE INTO rental_reminders (
+                    borrowing_request_id, reminder_type
+                )
+                VALUES (?, 'rental_overdue')
+                """,
+                (request_id,),
+            )
+
+            if reminder.rowcount:
+                add_notification(
+                    connection,
+                    borrower_id,
+                    f"Your rental of {item_name} is overdue. "
+                    "Please return it as soon as possible.",
+                    url_for("my_rentals"),
+                )
+
+        connection.commit()
+
+    except Exception:
+        connection.rollback()
+        raise
+
+    finally:
+        connection.close()
 
 
 def error_response(message, status_code=400, title="Please check your request"):
@@ -4983,11 +5027,13 @@ def refund_deposit(request_id):
 
     rental = connection.execute(
         """
-        SELECT
-            equipment.owner_id,
-            borrowing_requests.status,
-            borrowing_requests.deposit_status,
-            borrowing_requests.damage_status
+      SELECT
+    equipment.owner_id,
+    borrowing_requests.status,
+    borrowing_requests.deposit_status,
+    borrowing_requests.damage_status,
+    borrowing_requests.damage_dispute_status,
+    borrowing_requests.damage_charge
         FROM borrowing_requests
         JOIN equipment
             ON borrowing_requests.equipment_id = equipment.id
@@ -5018,11 +5064,19 @@ def refund_deposit(request_id):
             "There is no held deposit to refund.", 400
         )
 
-    if rental[3] != "Good Condition":
+    good_condition = rental[3] == "Good Condition"
+
+    cancelled_damage_claim = (
+        rental[3] == "Damaged"
+        and rental[4] == "Cancelled"
+        and float(rental[5] or 0) == 0
+    )
+
+    if not (good_condition or cancelled_damage_claim):
         connection.close()
         return error_response(
-            "Mark the item as Good Condition "
-            "before refunding the deposit.",
+            "Refund requires Good Condition or "
+            "a cancelled damage claim with zero charge.",
             400
         )
 
@@ -5033,7 +5087,14 @@ def refund_deposit(request_id):
         WHERE id = ?
           AND status = 'Completed'
           AND deposit_status = 'Held'
-          AND damage_status = 'Good Condition'
+          AND (
+              damage_status = 'Good Condition'
+              OR (
+                  damage_status = 'Damaged'
+                  AND damage_dispute_status = 'Cancelled'
+                  AND COALESCE(damage_charge, 0) = 0
+              )
+          )
         """,
         (request_id,)
     )
@@ -5044,6 +5105,12 @@ def refund_deposit(request_id):
             "This deposit is no longer eligible for refund.",
             409
         )
+    if cursor.rowcount != 1:
+                        connection.close()
+                        return error_response(
+                            "This deposit is no longer eligible for refund.",
+                            409
+                        )
 
     connection.commit()
     connection.close()
@@ -5056,10 +5123,9 @@ def refund_deposit(request_id):
 
     return redirect(url_for("owner_requests"))
 
-
-# =====================================================
-# SETTLE DAMAGE
-# =====================================================
+                # =====================================================
+                # SETTLE DAMAGE
+                # =====================================================
 
 @app.route("/settle-damage/<int:request_id>", methods=["POST"])
 def settle_damage(request_id):
@@ -5113,11 +5179,11 @@ def settle_damage(request_id):
             "This item is not marked as damaged.", 400
         )
 
-    if rental[4] == "Pending":
+    if rental[4] in {"Pending", "Cancelled"}:
         connection.close()
         return error_response(
-            "Resolve the borrower's damage dispute "
-            "before settling the deposit.",
+            "A pending or cancelled damage dispute "
+            "cannot be settled.",
             409
         )
 
@@ -5148,7 +5214,7 @@ def settle_damage(request_id):
           AND status = 'Completed'
           AND deposit_status = 'Held'
           AND damage_status = 'Damaged'
-          AND damage_dispute_status != 'Pending'
+          AND damage_dispute_status NOT IN ('Pending', 'Cancelled')
           AND damage_reported_at IS NOT NULL
           AND datetime('now') >=
               datetime(damage_reported_at, '+48 hours')

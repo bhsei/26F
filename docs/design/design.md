@@ -4,22 +4,21 @@
 |---|---|
 | **Project** | CampusShare (Team 26F) |
 | **Document** | Architecture and design description |
-| **Version** | v0.1 (draft for team review) |
-| **Date** | 2026-10-22 |
+| **Version** | v1.0  |
+| **Date** | 2026-11-24 |
 | **Author** | Sandra Masiwa (system design and documentation) |
 | **Team** | Turay Edward Joe (backend and business logic), Amanda Nancy Skaikay (requirements analysis and usability review), Sandra Masiwa (system design and documentation) |
 | **Standard followed** | ISO/IEC/IEEE 42010:2022 (architecture description), structure adapted for a course project |
-| **Baseline** | `app.py` as reviewed on 2026-10-17 (repository commit `2403816`) |
+| **Baseline** | Branch `main`, snapshot `26F-main` dated 2026-11-17 (95 automated tests pass) |
 | **Location** | `docs/design/design.md` |
-| **Related documents** | [`SRS.md`](../requirements/SRS.md), [`user-roles-and-permissions.md`](../requirements/user-roles-and-permissions.md) |
-
-> **Baseline note.** This document describes the application **as built at the baseline above**. Backend changes made by the team after that date are not yet reflected. Section 9 lists the places to update once they are pushed.
+| **Related documents** | [`SRS.md`](../requirements/SRS.md) v1.0, [`user-roles-and-permissions.md`](../requirements/user-roles-and-permissions.md) |
 
 ## Revision history
 
 | Version | Date | Author | Change |
 |---|---|---|---|
-| v0.1 | 2026-10-22 | Sandra Masiwa | First draft from code review and manual testing |
+| v0.1 | 2026-10-22 | Sandra Masiwa | First draft from the first prototype (`app.py`, commit `2403816`) |
+| v1.0 | 2026-11-24 | Sandra Masiwa | Rewritten for the current `main`: module structure, ten tables, meetup, inspection and handover workflow, simulated QR payment, damage disputes, administrator role, retention and backup scripts, updated security analysis, decisions and route inventory. Proposals from v0.1 are marked done or still open (section 6.2). Completed to the ISO/IEC/IEEE 42010 elements: documentation roadmap (1.4), viewpoint definitions (2.1), element and interface catalogs (4.6), correspondences between views (4.7), consistency statement (4.8), and a glossary (Appendix B) |
 
 ## Table of contents
 
@@ -29,10 +28,11 @@
 4. [Architectural views](#4-architectural-views)
 5. [Security and trust design](#5-security-and-trust-design)
 6. [Design decisions and rationale](#6-design-decisions-and-rationale)
-7. [Target architecture (proposed)](#7-target-architecture-proposed)
+7. [Future architecture (proposed)](#7-future-architecture-proposed)
 8. [Traceability to the SRS](#8-traceability-to-the-srs)
-9. [Limitations and items to update](#9-limitations-and-items-to-update)
+9. [Limitations and known issues](#9-limitations-and-known-issues)
 10. [Appendix A: Route inventory](#appendix-a-route-inventory)
+11. [Appendix B: Glossary](#appendix-b-glossary)
 
 ---
 
@@ -40,18 +40,34 @@
 
 ### 1.1 Purpose
 
-This document describes the architecture and design of CampusShare, a web application for lending and borrowing equipment among Beihang University students. It explains how the system is organized, why it is organized that way, where its trust boundaries lie, and how the design should change to meet the requirements in the SRS.
+This document describes the architecture and design of CampusShare, a web application where Beihang University students lend and borrow equipment. It explains how the system is organized, why, where its trust boundaries lie, and how each part meets the requirements in the SRS.
 
 ### 1.2 Scope
 
-It covers the application, its database, and its runtime environment. It does not cover the hand-over of physical items, which happens between students in person.
+It covers the application, its database, its scheduled scripts, and its runtime environment. It does not cover the physical hand-over of items, which happens between students in person, or real payment, which is out of scope (the payment is simulated and the project is for academic purposes only).
 
 ### 1.3 Reading guide
 
-- Statements marked **(code)** come from reading `app.py`.
-- Statements marked **(test)** come from manual testing of the running application.
-- Statements marked **(proposed)** describe a design that does not yet exist.
-- Requirement IDs such as `FR-REQ-08` and `SEC-05` refer to the [SRS](../requirements/SRS.md).
+- Statements marked **(code)** come from reading the source on `main`.
+- Statements marked **(test)** are confirmed by an automated test.
+- Statements marked **(proposed)** describe something that does not exist yet.
+- IDs such as `FR-MTG-03` and `SEC-12` refer to the [SRS](../requirements/SRS.md).
+
+### 1.4 Documentation roadmap
+
+| If you want to... | Read | Section |
+|---|---|---|
+| Understand the system in five minutes | Overview and context view | 3, 4.1 |
+| Review how the code is organized | Logical view, element catalog | 4.2, 4.6 |
+| Check what is stored | Data view | 4.3 |
+| Follow a workflow or a status change | Process view | 4.4 |
+| Run or deploy it | Deployment view, interface catalog | 4.5, 4.6.2 |
+| Judge the security | Security and trust design | 5 |
+| Find why a choice was made | Design decisions | 6 |
+| Check a requirement is covered | Traceability, correspondences | 8, 4.7 |
+| Look up a route or a term | Appendices | A, B |
+
+Each view in section 4 states which concerns it answers, uses one notation, and is tied to the other views in section 4.7.
 
 ---
 
@@ -59,37 +75,60 @@ It covers the application, its database, and its runtime environment. It does no
 
 | Stakeholder | Concerns |
 |---|---|
-| Owner students | Easy listing, safe handling of their items, fair damage and late-fee decisions, getting deposits right |
-| Borrower students | Finding items quickly, clear prices and dates, protection from unfair charges, reminders |
-| Administrator (planned) | Removing abusive listings or users, resolving disputes, seeing what happened |
+| Owner students | Easy listing, safe handling of items, fair damage and late-fee decisions, correct deposits |
+| Borrower students | Finding items, clear prices and dates, protection from unfair charges, reminders |
+| Administrator | Removing abusive listings or users, deciding disputes, seeing what happened |
 | Development team | Code that is easy to change, test, and run on any laptop |
-| Instructor and peer-review teams | Clear, consistent, verifiable documentation that matches the running system |
+| Instructor and peer-review teams | Documentation that matches the running system and can be checked |
 | Beihang University | Only genuine students use the service; student data is protected |
 
-### 2.1 Viewpoints used
+### 2.1 Viewpoint definitions
 
-| Viewpoint | Concerns it answers | Section |
-|---|---|---|
-| Context | What is inside and outside the system | 4.1 |
-| Logical (components) | How the code is organized | 4.2 |
-| Data | What is stored and how it relates | 4.3 |
-| Process | How the main workflows run | 4.4 |
-| Deployment | Where and how it runs | 4.5 |
-| Security and trust | Who must be trusted, what can go wrong | 5 |
+Each viewpoint fixes the concerns it frames, the kinds of model it uses, and the notation. A view in section 4 is one application of a viewpoint to CampusShare.
+
+| Viewpoint | Concerns it frames | Main stakeholders | Model kinds | Notation | View |
+|---|---|---|---|---|---|
+| Context | What is inside the system and what it talks to | All | System boundary, external parties | Mermaid flowchart | 4.1 |
+| Logical | How the code is divided and who depends on whom | Developers, reviewers | Components, responsibilities, dependencies | Mermaid flowchart, tables | 4.2, 4.6 |
+| Data | What is stored, how it relates, and which values are allowed | Developers, reviewers, administrator | Entities, relationships, value sets | Mermaid ER diagram, tables | 4.3 |
+| Process | How workflows run and how rental status changes | Owners, borrowers, developers | Sequences, state machines, flows | Mermaid sequence, state and flow diagrams | 4.4 |
+| Deployment | Where the parts run, how they are configured and scheduled | Developers, instructor | Nodes, files, variables, schedules | Mermaid flowchart, tables | 4.5 |
+| Security and trust | Assets, trust boundaries, threats, controls | Administrator, university, reviewers | Trust boundaries, STRIDE table, control list | Mermaid flowchart, tables | 5 |
+
+Conventions: boxes are components or stores, arrows show the direction of a request or data flow, requirement IDs such as `FR-MTG-03` link a model element to the [SRS](../requirements/SRS.md), and "(code)", "(test)", and "(proposed)" mark the evidence for a statement (section 1.3).
+
+---
 
 ---
 
 ## 3. Architecture overview
 
-CampusShare is a **monolithic, server-rendered web application**:
+CampusShare is a **monolithic, server-rendered web application** **(code)**:
 
-- One Python file, `app.py`, holds the database setup and every route **(code)**.
-- **Flask** receives browser requests, runs the logic, and returns HTML pages built from **Jinja2 templates** in `templates/`. Static files are in `static/`.
-- **SQLite** stores all data in one file, `campusshare.db`, created on first start.
-- **Sessions** are Flask's signed cookies. The cookie holds `user_id` and `user_name`.
-- Each route opens its own database connection with `sqlite3`, runs raw SQL, and closes it **(code)**.
+- **Flask** receives browser requests, runs the logic, and returns HTML from **Jinja2 templates** (27 files in `templates/`). Static files are in `static/`.
+- **SQLite** holds all data in one file, `campusshare.db`, created by `init_db()` on first start. Every connection comes from `database.connect_database`, which turns on foreign keys.
+- **Sessions** are Flask signed cookies (HttpOnly, SameSite Lax, 30 minutes idle).
+- **Flask-WTF** adds a CSRF token to every state-changing form.
+- Every route opens its own database connection, runs parameterized SQL, and closes it. Multi-step changes use `BEGIN IMMEDIATE` so SQLite allows one writer at a time.
 
-This keeps the system simple to run: install Flask, start `app.py`, open a browser. The cost is that logic, data access, and presentation choices are mixed in one file, which makes testing and security hardening harder (see sections 6 and 7).
+The code is split into small modules, but the routes are still in one file:
+
+| File | Responsibility | Size |
+|---|---|---|
+| `app.py` | Configuration, security settings, HTTPS hooks, schema (`init_db`), error pages, unread-count context processors, start-up | about 810 lines |
+| `campusshare_routes.py` | Every route, plus validation, pricing, and rental-state logic | about 5,350 lines |
+| `database.py` | `connect_database` with `PRAGMA foreign_keys = ON` | 8 lines |
+| `email_utils.py` | SMTP sending (verification, reset, notification emails) | |
+| `notification_utils.py` | `create_notification`: in-app row, plus email if the user opted in | |
+| `rental_reminders.py` | Scheduled script: reminder one day before the end date | |
+| `retention_cleanup.py` | Manual script: preview or apply data retention rules | |
+| `database_backup.py` | Script: consistent SQLite backup | |
+| `install_*.ps1` | Windows scheduled tasks for reminders and backups | |
+| `performance_test.py` | In-process benchmark (1,000 listings, 50 workers) | |
+
+**Start-up wiring (code).** `app.py` creates the Flask object, then imports `campusshare_routes` near the end, which registers the routes on that object. The routes module imports `app` back. When `app.py` is run directly, it first registers itself as module `app` so both files share one Flask instance (`test_running_app_py_registers_routes_on_the_server_instance`). `FLASK_SECRET_KEY` is required; the application refuses to start without it (SEC-04).
+
+The cost of this layout is that logic, data access, and presentation choices sit together in one large file. Section 7 proposes a split.
 
 ---
 
@@ -102,240 +141,263 @@ flowchart LR
     O[Owner student] --> W[CampusShare web application]
     B[Borrower student] --> W
     V[Visitor, not logged in] --> W
-    A[Administrator, planned] -.-> W
+    A[Administrator] --> W
     W --> D[(SQLite database file)]
-    W -.->|planned| E[University email service]
+    W --> F[(Photos on disk)]
+    W -->|SMTP| E[Email service]
+    S[Scheduled scripts: reminders, backups] --> D
 ```
 
-External actors are students using browsers. The only external system planned is an email service for account verification and password reset (SRS FR-EXT-03).
+Users reach the application through a browser. The simulated QR payment is served by the application itself and is not an external system. The only external system is an SMTP mail service, configured at deployment (FR-EXT-03).
 
-### 4.2 Logical view: components as built
-
-The code has no module boundaries, but the routes fall into clear groups:
+### 4.2 Logical view: components
 
 ```mermaid
 flowchart TB
     BR[Browser] --> APP
-    subgraph APP["app.py (Flask)"]
+    subgraph APP["Flask application: app.py and campusshare_routes.py"]
         ACC[Accounts and sessions]
+        ADM[Administration]
         LST[Listings]
-        DSC[Discovery: home, browse, details]
-        RNT[Rentals: requests, approval, return]
-        PAY[Payments, deposits, damage]
-        REP[Reputation: ratings and reviews]
-        MSG[Messaging and notifications]
-        DSH[Dashboard]
+        DSC[Discovery]
+        RNT[Rental workflow]
+        PAY[Simulated payment, deposit, return, damage]
+        REP[Ratings and reviews]
+        MSG[Messages and notifications]
+        DSH[Dashboard and my pages]
     end
-    APP --> TPL[Jinja2 templates and static files]
-    APP --> DB[(SQLite campusshare.db)]
+    APP --> TPL[Templates and static files]
+    APP --> DB[(campusshare.db)]
+    APP --> PH[(Photos on disk)]
+    APP --> MAIL[email_utils and notification_utils]
+    SCH[rental_reminders, database_backup, retention_cleanup] --> DB
 ```
 
 | Component | Responsibility | Main routes |
 |---|---|---|
-| Accounts and sessions | Register, log in and out, reset password | `/register`, `/login`, `/logout`, `/forgot-password`, `/reset-password/<token>` |
-| Listings | Create, edit, delete, and list own items | `/list-item`, `/edit-listing/<id>`, `/delete-listing/<id>`, `/my-listings` |
-| Discovery | Home page, search, filters, item details | `/`, `/browse`, `/equipment/<id>` |
-| Rentals | Request, approve, reject, return; list own rentals and incoming requests | `/request-equipment/<id>`, `/requests/<id>/approve`, `/reject`, `/complete`, `/my-rentals`, `/requests` |
-| Payments, deposits, damage | Mark paid, hold and refund deposit, record damage | `/pay-rental/<id>`, `/confirm-deposit/<id>`, `/damage-status/<id>/<condition>`, `/refund-deposit/<id>` |
-| Reputation | Rate owner, view reviews | `/rate/<id>`, `/my-reviews` |
-| Messaging and notifications | Student list, chat, conversation list, notification list | `/students`, `/chat/<id>`, `/messages`, `/delete-message/<id>`, `/notifications` |
-| Dashboard | Counts and average rating | `/dashboard` |
+| Accounts and sessions | Register with email confirmation, log in with lockout, log out, reset password, delete account | `/register`, `/login`, `/verify-email/<token>`, `/resend-verification`, `/logout`, `/forgot-password`, `/reset-password/<token>`, `/account/delete` |
+| Administration | Remove listings, suspend or restore users, see open disputes | `/admin`, `/admin/listings/<id>/remove`, `/admin/users/<id>/suspension` |
+| Listings | Create, edit, delete, photo upload, hourly window | `/list-item`, `/edit-listing/<id>`, `/delete-listing/<id>`, `/my-listings` |
+| Discovery | Browse, search, filter, paginate, detail page | `/`, `/browse`, `/equipment/<id>` |
+| Rental workflow | Request, owner reject, meetup, pickup photo, inspection, approve, handover | `/request-equipment/<id>`, `/requests/<id>/schedule-meetup`, `.../confirm-meetup`, `/rentals/<id>/inspection-photo`, `.../verify-inspection`, `.../reject-inspection`, `/requests/<id>/approve`, `.../reject`, `/rentals/<id>/ready-for-handover`, `/requests/<id>/confirm-handover` |
+| Payment, deposit, return, damage | QR payment, deposit Held, return, late fee, damage report, dispute, settlement, refund | `/qr-payment/...`, `/confirm-deposit/<id>`, `/requests/<id>/complete`, `/pay-late-fee/<id>`, `/damage-status/<id>/<condition>`, `/damage-dispute/<id>`, `/damage-dispute/<id>/resolve`, `/settle-damage/<id>`, `/refund-deposit/<id>` |
+| Ratings | Two-way reviews after completion | `/rate/<id>`, `/my-reviews` |
+| Messages and notifications | Direct messages, notification list, email preference | `/chat/<id>`, `/messages`, `/delete-message/<id>`, `/students`, `/notifications...` |
+| Dashboard and lists | Per-user summaries | `/dashboard`, `/my-rentals`, `/requests` |
 
-The full route list with access rules is in [Appendix A](#appendix-a-route-inventory).
-
-**Observations on the structure (code):**
-- Columns are read by position (for example `item[6]` for sharing type), so a change to the table layout can silently break pages.
-- The same ownership-check pattern is repeated in many routes instead of shared.
-- `init_db()` runs only when `app.py` is started directly.
+The full route list is in Appendix A.
 
 ### 4.3 Data view
 
 ```mermaid
 erDiagram
     users ||--o{ equipment : owns
-    users ||--o{ borrowing_requests : requests
+    users ||--o{ borrowing_requests : borrows
     equipment ||--o{ borrowing_requests : "is requested in"
-    borrowing_requests ||--o| ratings : "is rated by"
-    users ||--o{ ratings : "gives or receives"
-    users ||--o{ messages : "sends or receives"
+    borrowing_requests ||--o{ rental_condition_photos : has
+    borrowing_requests ||--o{ ratings : "is rated in"
+    borrowing_requests ||--o{ rental_reminders : triggers
+    users ||--o{ messages : sends
     users ||--o{ notifications : receives
-
-    users {
-        int id PK
-        text name
-        text email UK
-        text student_id UK
-        text password
-    }
-    equipment {
-        int id PK
-        int owner_id FK
-        text item_name
-        text category
-        text description
-        text condition
-        text sharing_type
-        real price
-        real deposit
-        text available_from
-        text available_until
-        text location
-    }
-    borrowing_requests {
-        int id PK
-        int equipment_id FK
-        int borrower_id FK
-        text start_date
-        text end_date
-        text status
-        text payment_status
-        text deposit_status
-        real total_price
-        real late_fee
-        text damage_status
-        text damage_report
-        real damage_charge
-    }
-    ratings {
-        int id PK
-        int borrowing_request_id FK
-        int rater_id FK
-        int rated_user_id FK
-        int rating
-        text comment
-    }
-    messages {
-        int id PK
-        int sender_id FK
-        int receiver_id FK
-        text message_text
-        int is_read
-    }
-    notifications {
-        int id PK
-        int user_id FK
-        text message
-        text link
-        int is_read
-    }
+    users ||--o{ ratings : gives
 ```
 
-**Design points:**
-- The **password** column stores a salted hash made by Werkzeug **(code)**.
-- Dates are stored as text in `YYYY-MM-DD` form. This sorts correctly but has no time of day, so part-day rentals are impossible (SRS FR-LST-08).
-- A rental's whole life is tracked on **one row** of `borrowing_requests` using four status columns: `status`, `payment_status`, `deposit_status`, `damage_status`.
-- `price` is a **daily** price. Total price is calculated once when the request is made.
-- SQLite does not enforce foreign keys unless `PRAGMA foreign_keys = ON` is run on each connection. The code never runs it, so records can be orphaned **(code)**. Deleting a listing removes its requests, but ratings that point to those requests remain.
-- Equipment status (Available, Pending, Booked) is **not stored**. It is worked out from requests each time a page loads **(code)**.
+| Table | Key contents |
+|---|---|
+| `users` | name, unique email and student ID, password hash, `email_verified`, `role` (`user` or `admin`), `suspended`, `deleted_at`, `notification_emails_enabled` |
+| `equipment` | owner, name, category, description, condition, sharing type, price and unit (day or hour), deposit, availability dates, pickup and return times, location, `image_path`, `is_removed` |
+| `borrowing_requests` | equipment, borrower, dates and times, saved unit price and total, `status`, meetup fields (time, place, status, both inspection confirmations, rejection reason), `payment_status`, `deposit_status`, late fee and its status, damage status, report, charge and time, dispute status, reason and resolution, borrower-ready and handover times |
+| `rental_condition_photos` | request, uploader, stage (`pickup` or `return`), path, time |
+| `ratings` | request, rater, rated user, rating 1 to 5, comment; unique per request and rater |
+| `messages` | sender, receiver, text, read flag, time |
+| `notifications` | user, message, link, read flag, time |
+| `rental_reminders` | request and reminder type (primary key stops duplicates) |
+| `login_attempts`, `verification_email_attempts` | email, IP address, time (throttling) |
+
+All foreign keys are enforced (NFR-REL-01, tests). `add_missing_columns` adds new columns to an older database on start-up, which keeps old files working without a migration tool.
+
+**Value sets (code).**
+
+| Field | Values |
+|---|---|
+| Request `status` | Pending, Approved, Rejected, Overdue, Completed |
+| `payment_status` | Unpaid, Paid |
+| `deposit_status` | Pending, Held, Refunded, Settled |
+| `meetup_status` | Not Scheduled, Proposed, Confirmed |
+| `damage_status` | Not Checked, Good Condition, Damaged |
+| `damage_dispute_status` | Not Disputed, Pending, Upheld, Revised, Cancelled |
+| `late_fee_status` | Unpaid, Paid |
+
+The request `status` holds only five values. The finer stages of a rental are held in the other columns, so a rental's stage is the combination of columns, not one field.
+
+**Files outside the database.** Listing photos are in `static/uploads/` and are public. Pickup condition photos are in `instance/inspection_photos/` and are served only by `/inspection-photos/<id>` to the borrower and owner, with `Cache-Control: private, no-store`. Backups go to `backups/`.
 
 ### 4.4 Process view
 
-#### 4.4.1 Login and session
+#### 4.4.1 Registration and login
 
 ```mermaid
 sequenceDiagram
-    actor U as Student
-    participant F as Flask route /login
-    participant D as SQLite
-    U->>F: POST email and password
-    F->>D: Find user by lowercase email
-    D-->>F: User row with password hash
-    F->>F: Compare password with hash
-    alt match
-        F-->>U: Set signed session cookie, redirect to dashboard
-    else no match
-        F-->>U: Plain text "Invalid email or password."
-    end
-    U->>F: Later requests carry the cookie
-    F->>F: Every protected route checks user_id in session
+    actor U as Visitor
+    participant A as CampusShare
+    participant M as Email service
+    U->>A: Register (name, @buaa.edu.cn email, student ID, password)
+    A->>A: Check email ending, password rules, uniqueness
+    A->>M: Send verification link (valid 24 hours)
+    U->>A: Open link and confirm
+    A->>A: Set email_verified
+    U->>A: Log in
+    A->>A: Refuse if unverified, suspended, or 5 failed attempts in 15 minutes
+    A-->>U: Session cookie (30 minutes idle)
 ```
 
-Each protected route repeats the check `if "user_id" not in session`. There is no central login guard, no idle timeout, and no failed-attempt limit.
+#### 4.4.2 Main borrowing flow
 
-#### 4.4.2 Request and approval
+The full sequence with requirement IDs is in SRS section 4.2. The design view of it:
 
 ```mermaid
 sequenceDiagram
     actor B as Borrower
-    participant F as Flask
-    participant D as SQLite
+    participant S as CampusShare
     actor O as Owner
-    B->>F: POST /request-equipment/id (start, end)
-    F->>D: Load listing
-    F->>F: Reject own item, bad dates, dates outside availability
-    F->>D: Check pending or approved requests
-    F->>F: Days x daily price for Paid items
-    F->>D: Insert request with status Pending
-    F-->>B: Redirect to dashboard
-    O->>F: GET /requests
-    O->>F: POST /requests/id/approve or reject
-    F->>D: Check the listing belongs to the owner
-    F->>D: Set status Approved or Rejected
+    B->>S: Request item (overlap check and insert in one transaction)
+    S-->>O: Notification
+    O->>S: Schedule meetup
+    B->>S: Confirm meetup
+    Note over B,O: Meet and inspect in person
+    B->>S: Upload pickup photo
+    B->>S: Verify inspection
+    O->>S: Verify inspection
+    B->>S: Pay rental fee (simulated QR, link valid 10 minutes)
+    O->>S: Mark deposit Held
+    O->>S: Approve (status becomes Approved)
+    B->>S: Ready for handover
+    O->>S: Confirm handover
+    O->>S: Mark returned (status becomes Completed)
+    O->>S: Record Good Condition or Damaged
+    S-->>B: Refund deposit, or 48-hour dispute window
 ```
 
-No notification is created for the owner or the borrower at either step (SRS FR-NTF-01). The approve and reject routes do not check the current status (SRS FR-REQ-08).
+Each step is an HTTP POST that checks, inside one transaction, that the actor is the right person and that the request is in the right state. A step in the wrong order is refused with HTTP 409 (test: approval before deposit, return and handover before approval).
 
-#### 4.4.3 Return, damage, and deposit
+#### 4.4.3 Return, damage, and dispute
 
 ```mermaid
-sequenceDiagram
-    actor B as Borrower
-    participant F as Flask
-    participant D as SQLite
-    actor O as Owner
-    B->>F: POST /pay-rental/id
-    F->>D: payment_status = Paid
-    O->>F: POST /confirm-deposit/id
-    F->>D: Requires Paid, sets deposit_status = Held
-    Note over B,O: Item handed over and used
-    O->>F: POST /requests/id/complete
-    F->>D: Requires Approved, late fee = late days x daily price, status = Completed
-    O->>F: POST /damage-status/id/good or damaged
-    F->>D: damage_status, report, charge
-    O->>F: POST /refund-deposit/id
-    F->>D: Requires Completed, Held, Good Condition, sets Refunded
-    B->>F: POST /rate/id
-    F->>D: Insert rating (once, Completed only)
+flowchart TD
+    C[Owner marks returned: Completed] --> LF{Returned late?}
+    LF -- yes --> LATE[Late fee = rate x late days; borrower pays it]
+    LF -- no --> COND
+    LATE --> COND{Condition}
+    COND -- Good Condition --> REF[Deposit refunded in full]
+    COND -- Damaged --> REP[Report and charge within the deposit]
+    REP --> WIN{Borrower disputes within 48 hours?}
+    WIN -- no --> SET[Charge settled after 48 hours]
+    WIN -- yes --> DEC[Owner or administrator: uphold, revise, or cancel]
+    DEC --> SET
+    SET --> REM[Remaining deposit refunded]
 ```
 
-All money fields are labels and numbers. No payment provider is involved. If an item is returned **Damaged**, no route applies the charge to the deposit, so that path has no end state (SRS FR-PAY-07). During testing the damage button failed. In the code, the final database update appears to receive its values in the wrong form (**to verify**), which would also block every refund because refunds need Good Condition.
+A cancelled dispute allows a refund but not a settlement (test).
 
 #### 4.4.4 Request status machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: borrower requests
-    Pending --> Approved: owner approves
-    Pending --> Rejected: owner rejects
-    Approved --> Completed: owner marks returned
+    [*] --> Pending
+    Pending --> Rejected: owner rejects, inspection rejected, or owner rejects after payment (refund)
+    Pending --> Approved: meetup confirmed, both verified, fee Paid, deposit Held
+    Approved --> Overdue: end date and time passed
+    Approved --> Completed: owner marks returned after handover
+    Overdue --> Completed: owner marks returned, late fee applied
     Rejected --> [*]
     Completed --> [*]
 ```
 
-This is the **intended** machine. The code allows other changes, such as approving a rejected request, because the current status is not checked.
+**Overdue marking (code).** `mark_overdue_rentals` runs as a `before_request` hook, so every web request first moves due rentals from Approved to Overdue and creates the overdue notice. There is no background process for it. The cost is that the change appears on the first request after the deadline. A rental waiting for handover is never marked Overdue (test).
 
 ### 4.5 Deployment view
 
-**As built:**
-
 ```mermaid
 flowchart LR
-    subgraph LAPTOP["Developer laptop"]
-        FL["Flask dev server, 0.0.0.0:5000"]
-        DBF[(campusshare.db file)]
-        FL --> DBF
-    end
-    BR1[Browser on same machine] --> FL
-    BR2[Other devices on same Wi-Fi] --> FL
+    BR[Browser] -->|HTTP, local| APP[python app.py on 127.0.0.1:5000]
+    APP --> DB[(campusshare.db)]
+    APP --> UP[static/uploads]
+    APP --> IP[instance/inspection_photos]
+    APP -->|SMTP| MAIL[Mail service]
+    TS[Windows Task Scheduler] --> REM[rental_reminders.py]
+    TS --> BK[database_backup.py]
+    REM --> DB
+    BK --> DB
 ```
 
-- The server listens on **all network addresses**, so other devices on the same network can reach it **(code, test)**.
-- `debug` is off, which is correct.
-- The Flask development server is used. Flask's own warning says it is not for production.
-- There is no `requirements.txt`. A newcomer must guess to install Flask.
-- Traffic is plain HTTP.
+**Configuration (environment variables).**
 
-**Proposed for the demonstration and launch:** see section 7.
+| Variable | Purpose | Required |
+|---|---|---|
+| `FLASK_SECRET_KEY` | Signs cookies and tokens | Yes; the application will not start without it |
+| `CAMPUSSHARE_ADMIN_EMAILS` | Comma-separated administrator emails | No |
+| `CAMPUSSHARE_SMTP_HOST`, `_FROM`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_SECURITY` | Mail service (`starttls` or `ssl`) | For real email |
+| `CAMPUSSHARE_ENV` | Meant to switch on HTTPS redirect and HSTS | Not effective (see 9) |
+
+**How to run.** Create a virtual environment, install `requirements.txt` (Flask, Flask-WTF, qrcode with Pillow), set `FLASK_SECRET_KEY`, run `python app.py`, open `http://127.0.0.1:5000`. The built-in server is for local use only. Tests run with `python -m unittest discover -s tests -v`.
+
+**Scheduling.** Scripts for Windows Task Scheduler exist. On macOS and Linux the team must schedule `rental_reminders.py` (daily) and `database_backup.py` (daily) with cron. `retention_cleanup.py` is run by hand; it shows a preview unless `--apply` is given.
+
+### 4.6 Element catalog
+
+#### 4.6.1 Components
+
+| Component | Responsibilities | Provides | Uses | Main data |
+|---|---|---|---|---|
+| Accounts and sessions | Register, confirm email, log in with lockout, log out, reset password, delete account | Web pages and forms (I-01) | `email_utils` (I-02), database | `users`, `login_attempts`, `verification_email_attempts` |
+| Administration | Remove listings, suspend users, decide disputes | Admin pages (I-01) | Notifications, database | `users` (role, suspended), `equipment` (removed), disputes in `borrowing_requests` |
+| Listings | Create, edit, delete listings; photo upload; hourly window | Listing forms (I-01) | File system (I-05), database | `equipment`, `static/uploads` |
+| Discovery | Browse, search, filter, paginate, show details | Public pages (I-01) | Database | `equipment`, derived availability |
+| Rental workflow | Request, meetup, pickup photo, inspection, approval, handover | Rental pages and actions (I-01) | Notifications, file system (I-05), database | `borrowing_requests`, `rental_condition_photos` |
+| Payment, deposit, return, damage | Simulated QR payment, deposit, return, late fee, damage report, dispute, settlement, refund | Payment pages (I-01), signed links (I-03) | Notifications, database | `borrowing_requests` |
+| Ratings | Two-way reviews, average rating | Review pages (I-01) | Database | `ratings` |
+| Messages and notifications | Direct messages, in-app notices, optional email | Message and notice pages (I-01) | `notification_utils`, `email_utils` (I-02) | `messages`, `notifications` |
+| Scheduled scripts | Return reminders, backups, retention cleanup | Command line (I-06) | Database, notifications | `rental_reminders`, whole database |
+
+#### 4.6.2 Interfaces
+
+| ID | Interface | Parties | Protocol and form | Trust and protection | SRS |
+|---|---|---|---|---|---|
+| I-01 | Web interface | Browser and application | HTTP forms and HTML pages | Signed session cookie, CSRF token, server-side checks | SEC-05, SEC-06, SEC-08 |
+| I-02 | Email | Application and SMTP service | SMTP with STARTTLS or SSL, credentials from environment | Failures are logged and never block the action | FR-EXT-03 |
+| I-03 | Signed links | Email or QR code and application | URL with a signed, time-limited token (verification, reset, QR payment) | Secret key; QR links valid 10 minutes; reset links single use | SEC-11, FR-EXT-07 |
+| I-04 | Database | Application and scripts and SQLite file | `sqlite3` with foreign keys on | Parameterized SQL | SEC-10, NFR-REL-01 |
+| I-05 | File storage | Application and disk | Public `static/uploads`; private `instance/inspection_photos` | Content-type check, size limit, access check on private photos | FR-LST-07, FR-MTG-05 |
+| I-06 | Scheduler | Operating system and scripts | Command line (`rental_reminders.py`, `database_backup.py`, `retention_cleanup.py`) | Run by the machine owner | FR-EXT-06, FR-DAT-02 |
+| I-07 | Logs | Application and log output | Text lines | Tokens and credentials redacted | SEC-14, SEC-16 |
+
+### 4.7 Correspondences between views
+
+| Component (4.2) | Tables (4.3) | Processes (4.4) | Runs as (4.5) | Security (5) | SRS area (8) |
+|---|---|---|---|---|---|
+| Accounts and sessions | `users`, `login_attempts`, `verification_email_attempts` | 4.4.1 | Web process | Spoofing controls, throttling | Accounts |
+| Administration | `users`, `equipment`, `borrowing_requests` | 4.4.3 | Web process | Role from allowlist | Administration |
+| Listings | `equipment` | | Web process, `static/uploads` | Upload checks | Listings |
+| Discovery | `equipment` | | Web process | Names only for other users | Browse |
+| Rental workflow | `borrowing_requests`, `rental_condition_photos` | 4.4.2, 4.4.4 | Web process, private photo folder | State and actor checks | Requests, meetup |
+| Payment, deposit, return, damage | `borrowing_requests` | 4.4.2, 4.4.3, 4.4.4 | Web process | Signed QR link, ownership checks | Payment |
+| Ratings | `ratings` | 4.4.2 | Web process | One review per rater and rental | Ratings |
+| Messages and notifications | `messages`, `notifications` | | Web process, SMTP | Sender-only deletion | Messages, notifications |
+| Scheduled scripts | `rental_reminders`, all tables | | Task Scheduler or cron | Run locally | Reminders, retention |
+
+### 4.8 Consistency statement
+
+The views agree on these points. They were checked on 2026-11-24.
+
+| Rule | Check |
+|---|---|
+| Every route in Appendix A belongs to one component in 4.2 | The 54 routes in Appendix A match the 54 route paths in `campusshare_routes.py` exactly |
+| Every table in 4.3 has an owning component in 4.6 and a row in 4.7 | Ten tables in `init_db`; all appear in 4.7 |
+| Status values in 4.3, the state machine in 4.4.4, and SRS section 3.5 are the same | Same five request statuses and the same value sets |
+| The workflow in 4.4.2 matches SRS section 4.2 | Same order of steps |
+| Every requirement group in the SRS maps to a component and a test (section 8) | See section 8 |
+
+Known inconsistency: the application does not read the HTTPS production switch described in `CAMPUSSHARE_PROGRESS.md` (section 9, item 1). The documents describe the code as it is.
 
 ---
 
@@ -345,88 +407,92 @@ flowchart LR
 
 | Asset | Why it matters |
 |---|---|
-| Account credentials and sessions | Control of an account means control of its listings, rentals, and messages |
-| Personal data: name, email, student ID | Privacy; identity of real students |
-| Listings and rental records | Basis of loans, deposits, and disputes |
-| Deposit, payment, and damage records | Money-related decisions; fairness between students |
+| Accounts and sessions | Control of an account means control of its listings, rentals, and messages |
+| Personal data: name, email, student ID | Privacy of real students |
+| Rental, deposit, and damage records | Basis of money-related decisions between students |
+| Pickup photos | Evidence in a damage dispute |
 | Messages | Private conversations |
-| Secret key | Signs cookies and password-reset tokens |
+| Secret key | Signs cookies, verification, reset, and payment tokens |
 
 ### 5.2 Trust boundaries
 
 ```mermaid
 flowchart LR
-    subgraph UNT["Untrusted zone"]
+    subgraph UNT["Untrusted"]
         U1[Student browser]
         U2[Visitor or attacker]
     end
     subgraph SRV["Trusted server zone"]
         APP[Flask application]
-        DB[(SQLite file)]
-        LOG[Console and logs]
+        DB[(SQLite)]
+        FS[(Photos on disk)]
+        LOG[Logs]
     end
-    subgraph EXT["External, planned"]
-        MAIL[University email service]
+    subgraph EXT["External"]
+        MAIL[Mail service]
     end
-    U1 -->|HTTP requests and cookie| APP
-    U2 -->|HTTP requests| APP
+    U1 -->|requests and cookie| APP
+    U2 -->|requests| APP
     APP --> DB
+    APP --> FS
     APP --> LOG
-    APP -.-> MAIL
+    APP --> MAIL
 ```
 
-Everything that arrives from a browser, including form fields, URL parameters, and cookies, must be treated as untrusted. The server is the only place where rules can be enforced. A rule that exists only in the page (a disabled button, a date picker) is not a security control.
+Everything from a browser (form fields, URL parts, cookies, uploaded files) is untrusted. The server is the only place where rules are enforced; a disabled button or date picker is not a control.
 
 ### 5.3 Threat analysis (STRIDE)
 
-| Threat | Scenario | Present weakness | Evidence | Planned control |
+| Threat | Scenario | Control now in place | SRS | Residual risk |
 |---|---|---|---|---|
-| **Spoofing** | Anyone registers with a made-up `@buaa.edu.cn` email and student ID | Only the email ending is checked | code, test | SEC-01 email confirmation; open issue on student ID source |
-| **Spoofing** | Attacker forges a session cookie or reset link | Secret key is written in the source file | code | SEC-04 secret from environment |
-| **Spoofing** | Password guessing | No password rules, no attempt limit | code | SEC-02, SEC-07 |
-| **Tampering** | A malicious page makes a logged-in user's browser submit an action | No CSRF tokens on forms | code | SEC-05 |
-| **Tampering** | Calling routes directly in the wrong order (pay a pending request, approve a rejected one) | Status is not checked | code | FR-REQ-08 central status machine |
-| **Tampering** | Borrower marks own rental "Paid" without paying | Paid is a label the borrower sets | code | FR-PAY-10 or owner confirmation of payment |
-| **Repudiation** | An owner denies approving or charging; a borrower denies paying | No log of actions | code | SEC-16 audit log |
-| **Information disclosure** | Any user reads every student's name and email | `/students` lists them | code | SEC-13 show names only |
-| **Information disclosure** | Reset link printed to the console and logs | `print` of the link | code | SEC-14, email delivery |
-| **Information disclosure** | Visitor learns which emails are registered | Reset form crashes for unregistered emails only | code | SEC-11 identical response |
-| **Information disclosure** | Listings and owner names visible without login | Browse and details are public | code | Team decision (SRS section 6, question 1) |
-| **Denial of service** | Many requests or large messages slow the server; SQLite locks on writes | No rate limits; one file database | code | SEC-07, NFR-PERF-01, move to a server database if load grows |
-| **Elevation of privilege** | A user acts on another user's listing or rental | Ownership is checked on most routes | code | SEC-08 keep and centralize; add tests TC-10 |
-| **Elevation of privilege** | No one can stop an abusive user | No administrator role | code | FR-ADM-01 to 03 |
-
-**What already works well (code):** passwords are hashed with salt; database queries use parameters, which prevents SQL injection; ownership checks exist on edit, delete, approve, reject, return, deposit, damage, and refund; messages can be deleted only by their sender; debug mode is off.
+| **Spoofing** | Registering with a made-up university email | Verification link sent to the address, valid 24 hours | SEC-01 | Student ID is not checked against any source |
+| **Spoofing** | Forged cookie or token | Secret key from the environment; signed, time-limited tokens | SEC-04 | Anyone holding the key can forge tokens |
+| **Spoofing** | Password guessing | 8 to 128 characters, common-password list, lock after 5 failures in 15 minutes | SEC-02, SEC-07 | Lockout can be used to annoy one account |
+| **Tampering** | Forged form posted from another site | CSRF token on all state-changing requests; logout is POST only | SEC-05 | None known |
+| **Tampering** | Calling routes out of order | Each route checks the actor and the state in its SQL; invalid transitions return 409 | SEC-08, FR-REQ-08 | Checks are per route, with no central guard; some are tested only manually |
+| **Tampering** | Borrower marks own rental Paid | Payment is recorded only through the signed QR confirmation by the borrower | FR-EXT-07 | Payment is simulated, so it proves nothing about real money |
+| **Tampering** | Uploading a script as a photo | Type checked by file content, 5 MB limit, image re-encoded | FR-LST-07 | None known |
+| **Repudiation** | An owner denies a charge or a borrower a payment | Security events logged without secrets; dispute outcomes stored | SEC-16 | Logs are plain files, 90-day retention is not automated |
+| **Information disclosure** | Reading other users' emails or IDs | Other users see names only | SEC-13 | None known |
+| **Information disclosure** | Tokens in logs | Redaction filter for verification, reset, and payment links; exceptions logged by type only | SEC-14 | Tested for tokens, not for every field |
+| **Information disclosure** | Learning which emails exist | Same response for known and unknown emails | SEC-11 | None known |
+| **Information disclosure** | Reading someone's pickup photos | Served only to borrower and owner, not cached | FR-MTG-05 | Administrator cannot see them in a dispute |
+| **Information disclosure** | Script injection through user text | Template auto-escaping, no `safe` filter | SEC-15 | One `render_template_string` with a fixed template |
+| **Denial of service** | Heavy load or large uploads | 5 MB request limit; resend and login throttles; in-process p95 of 1.07 s at 50 workers | NFR-PERF-01 | SQLite single writer; no real-network test |
+| **Elevation of privilege** | Acting on another user's rental | Ownership checks (see Tampering) | SEC-08 | As above |
+| **Elevation of privilege** | Becoming administrator | Role set only from the configured email list, never at registration | FR-ADM-01 | Anyone controlling an allowlisted mailbox |
 
 ### 5.4 Trust design: how students come to trust each other
 
-A sharing platform works only if students trust three things: **who** they are dealing with, **what happens if something goes wrong**, and **who decides**. The design addresses each.
-
-| Trust question | Current design | Gap | Proposed design |
-|---|---|---|---|
-| Is this person a real Beihang student? | Email suffix check | Anyone can pass it | Email confirmation link; later, a check of the student ID against an approved source (decision needed) |
-| Can I rely on this person? | Borrowers rate owners (1 to 5, comment) | Owners cannot rate borrowers; ratings do not affect anything | Two-way ratings; show average and count on the listing page |
-| What if the item comes back damaged? | Owner alone records damage and a charge | Borrower cannot respond; charge is never applied to the deposit | Borrower can view and dispute; deposit is held against the charge until resolved |
-| What if the item is late? | Late fee = days late x daily price at return | Free items have zero fee; no reminders or overdue state | Overdue status, reminders, and a rule for free items (decision needed) |
-| Who settles a dispute or removes a bad actor? | Nobody | No administrator | Administrator role with removal, suspension, and dispute review |
-| Is my private information safe? | Passwords hashed | Directory exposes emails; reset link in console | Show names only; email the reset link; minimize stored data |
-| Can I contact someone safely? | Direct messages with a 1,000 character limit | No block or report | Report-and-block option (could-have) |
+| Trust question | Design |
+|---|---|
+| Is this a real Beihang student? | University email must be confirmed. Student ID is recorded but not verified (accepted limitation) |
+| Can I rely on this person? | Two-way 1 to 5 star reviews after each completed rental; average shown on the dashboard |
+| Is the item as described? | Meetup in person, pickup photo, both parties verify before any payment |
+| What if the item comes back damaged? | Owner records damage and a charge within the deposit; borrower has 48 hours to dispute; owner or administrator decides; the pickup photo is the reference |
+| What if it is late? | Automatic Overdue status, reminders, late fee of the saved rate per late day |
+| Who settles disputes or removes bad actors? | Administrator can resolve disputes, remove listings, and suspend accounts, without deleting history |
+| Is my private information safe? | Names only are shown; passwords hashed; data retention script; account deletion keeps only what the other party needs |
 
 ### 5.5 Security controls summary
 
 | Control | Status | SRS |
 |---|---|---|
-| Password hashing | In place | SEC-03 |
+| Email confirmation | In place | SEC-01 |
+| Password rules and salted hashing | In place | SEC-02, SEC-03 |
+| Secret key from configuration | In place | SEC-04 |
+| CSRF protection | In place | SEC-05 |
+| Session timeout and cookie flags | In place | SEC-06 |
+| Login attempt limit | In place | SEC-07 |
+| Ownership and state checks | Partial | SEC-08 |
+| Input validation | Partial | SEC-09 |
 | Parameterized SQL | In place | SEC-10 |
-| Ownership checks | Mostly in place | SEC-08 |
-| Secret key from configuration | Missing | SEC-04 |
-| CSRF protection | Missing | SEC-05 |
-| Session timeout and cookie flags | Missing | SEC-06 |
-| Login attempt limit | Missing | SEC-07 |
-| Password rules | Missing | SEC-02 |
-| Email confirmation | Missing | SEC-01 |
-| Local-only dev server, HTTPS in deployment | Missing | SEC-12 |
-| Audit log | Missing | SEC-16 |
+| Reset links single-use, neutral reply | In place | SEC-11 |
+| Loopback binding; HTTPS in deployment | Partial: production switch is not wired | SEC-12 |
+| Names only for other users | In place | SEC-13 |
+| No secrets in logs | In place | SEC-14 |
+| Output escaping | In place | SEC-15 |
+| Security event log | In place | SEC-16 |
 
 ---
 
@@ -436,129 +502,191 @@ A sharing platform works only if students trust three things: **who** they are d
 
 | ID | Decision | Rationale | Consequence |
 |---|---|---|---|
-| D-01 | One Flask application in a single file, server-rendered pages | Fast to build and run; no separate frontend to maintain | Hard to test and review; logic and presentation are mixed |
-| D-02 | SQLite file database | No installation; suits a small prototype | Single writer; no enforced foreign keys by default; hard to scale |
-| D-03 | One account type, with roles decided by ownership of a listing or rental | A student is often both lender and borrower | Simple, but no place for an administrator role |
-| D-04 | Signed cookie sessions | Built into Flask | Security rests on the secret key, which is currently in the source |
-| D-05 | Rental state kept as four text columns on one row | One table covers the full life of a rental | Valid state combinations are enforced only by scattered `if` checks |
-| D-06 | Price is per day; total calculated at request time | Simple and predictable | No hourly rental; later price changes do not alter the stored total |
-| D-07 | Payment, deposit, and damage as status labels | A real payment gateway is out of scope for the course | Nothing prevents false "Paid" claims |
-| D-08 | Registration limited by email suffix | Cheap way to keep the platform for Beihang students | Not real verification |
-| D-09 | Equipment status derived from requests, not stored | Avoids two values going out of step | Extra queries on every browse and detail page |
+| D-01 | One Flask application with server-rendered pages; routes in one module | Quick to build, run, and demonstrate | A 5,350-line routes file is hard to review (G-28) |
+| D-02 | SQLite file database with foreign keys on | No installation; enough for a campus demo | One writer at a time; no migration tool, only `add_missing_columns` |
+| D-03 | One account type; owner and borrower roles come from the listing or request; an `admin` role from an email allowlist | A student is often both lender and borrower | Every route must check the actor itself |
+| D-04 | Signed cookie sessions, 30-minute idle timeout | Built into Flask | Security rests on the secret key |
+| D-05 | Rental stage kept as several columns on one row, with a five-value `status` | One table covers the life of a rental | Valid combinations are enforced in SQL conditions, not by one state function |
+| D-06 | Hourly and daily pricing; hourly time rounded up to whole hours; unit price and total saved at request time | Simple and predictable | Later price edits do not change a request |
+| D-07 | Payment is simulated by a signed QR link valid 10 minutes; deposit is marked Held by the owner | No payment gateway is available; project is academic | "Paid" proves nothing about real money |
+| D-08 | In-person meetup, pickup photo, and verification by both parties before payment and approval | Builds trust and gives evidence for disputes (peer-review findings F-01, F-11) | More steps for users |
+| D-09 | Overdue is detected by a hook on each request | No scheduler needed on any machine | Status changes at the next request, not at the exact time |
+| D-10 | Reminders, backups, and retention cleanup are separate scripts | Keeps the web process simple | Need a scheduler; Windows scripts only |
+| D-11 | Damage charge waits 48 hours; owner or administrator decides a dispute | Fair to the borrower; avoids a dead end if the owner does not act | Slower settlement |
+| D-12 | Equipment status (Available, Pending, Booked) is derived from requests, not stored | Avoids two values going out of step | Extra queries; a listing with one booking shows Booked (G-30) |
+| D-13 | Pickup photos stored outside `static/` and served through a checked route | Private evidence | Not in the database backup |
 
-### 6.2 Decisions proposed
+### 6.2 Proposals from v0.1: where they stand
 
-| ID | Proposed decision | Addresses |
+| ID | Proposal | State |
 |---|---|---|
-| P-01 | Split the app into Flask **blueprints** by component (section 4.2) and move SQL into a small data-access module | NFR-MNT-02, testability |
-| P-02 | Read secret key and settings from **environment variables** | SEC-04 |
-| P-03 | Create one **status-change function** that allows only the transitions in section 4.4.4 | FR-REQ-08 |
-| P-04 | Add **CSRF protection** to all forms (for example Flask-WTF) | SEC-05 |
-| P-05 | Add **rate limiting** on login and reset (for example Flask-Limiter) | SEC-07 |
-| P-06 | Send **email confirmation and reset links** using the existing token tool (`itsdangerous`) and a mail service | SEC-01, FR-AUTH-06 |
-| P-07 | Turn on `PRAGMA foreign_keys = ON` and prevent deletion of listings with approved or completed rentals | NFR-REL-01, FR-LST-05 |
-| P-08 | Use a **login guard** (one decorator) and one place for ownership checks | SEC-08 |
-| P-09 | Add a `role` column to `users` with value `student` or `admin` | FR-ADM-01 |
-| P-10 | Store date **and time** for availability and rentals | FR-LST-08 |
-| P-11 | Add an `audit_log` table | SEC-16 |
-| P-12 | Bind to `127.0.0.1` in development; serve over HTTPS behind a reverse proxy for any shared use | SEC-12 |
-
-*These are proposals for the team to accept or reject. Section 6 of the SRS lists the scope questions that decide which ones are built before Week 16.*
+| P-01 | Split the app into blueprints and a data-access module | Open (section 7) |
+| P-02 | Secret key and settings from environment variables | Done (secret key, admin list, SMTP). Production switch not wired |
+| P-03 | One status-change function | Not done; conditions are in each route's SQL |
+| P-04 | CSRF protection | Done |
+| P-05 | Rate limiting on login and reset | Done (database-backed counters) |
+| P-06 | Email confirmation and reset links | Done |
+| P-07 | Foreign keys on; block deletion of listings with history | Done |
+| P-08 | One login guard and one ownership check | Not done; checked per route |
+| P-09 | `role` column | Done |
+| P-10 | Date and time for availability and rentals | Done |
+| P-11 | Audit log | Done as log lines (SEC-16), not a table |
+| P-12 | Bind to 127.0.0.1; HTTPS for shared use | Binding done; HTTPS switch not wired |
 
 ---
 
-## 7. Target architecture (proposed)
+## 7. Future architecture (proposed)
+
+These are proposals only and are not required for the course deliverable.
 
 ```mermaid
 flowchart TB
-    BR[Browser] -->|HTTPS| PX[Reverse proxy]
-    PX --> FL
-    subgraph FL["Flask application (blueprints)"]
-        AUTH[auth]
-        LIST[listings]
-        RENT[rentals]
-        PAY[payments and deposits]
-        REV[reviews]
-        MSG[messages and notifications]
-        ADM[admin]
-        CORE[shared: login guard, ownership checks, status machine, config]
+    BR[Browser] --> PX[HTTPS reverse proxy]
+    PX --> WS[WSGI server]
+    WS --> APP[create_app factory]
+    subgraph APP[Flask application]
+        BP1[auth blueprint]
+        BP2[listings blueprint]
+        BP3[rentals blueprint]
+        BP4[payments and damage blueprint]
+        BP5[messaging blueprint]
+        BP6[admin blueprint]
+        SVC[Service layer: pricing, state rules, notifications]
+        REPO[Data access module]
     end
-    FL --> DB[(Database with foreign keys enforced)]
-    FL -.-> MAIL[Email service]
-    FL --> AUD[(Audit log)]
+    BP1 & BP2 & BP3 & BP4 & BP5 & BP6 --> SVC --> REPO --> DB[(Database)]
 ```
 
-| Layer | Change from today |
-|---|---|
-| Presentation | Same Jinja2 templates; add form-level error messages and date pickers that block past dates |
-| Application | Blueprints per component; shared guard, checks, and status machine |
-| Data | Same SQLite for the course demo, with foreign keys on and a `role` column and audit table added; a server database is the step after that |
-| Operations | `requirements.txt`, environment settings, local-only development binding, HTTPS for any shared deployment, daily database backup |
-
-The target keeps the technology the team already knows. The main changes are structure and security, not a rewrite.
+| Step | Change | Benefit |
+|---|---|---|
+| 1 | Read `CAMPUSSHARE_ENV` and the trusted-proxy count from the environment; apply proxy-header handling | HTTPS controls actually work (SEC-12) |
+| 2 | Split `campusshare_routes.py` into blueprints, with the pricing and state rules in a service module | Smaller files, unit-testable rules (NFR-MNT-02) |
+| 3 | One decorator for login and role, one function for state changes | Removes per-route differences (SEC-08) |
+| 4 | Let the administrator open pickup photos in a dispute; notify on inspection rejection | Closes two SRS gaps |
+| 5 | Move to a server database only if load grows beyond a campus pilot | Concurrency |
+| 6 | Real payment provider | Out of scope for the course |
 
 ---
 
 ## 8. Traceability to the SRS
 
-| Design element | Realizes or affects |
-|---|---|
-| 4.2 Accounts and sessions | FR-AUTH-01 to 06, SEC-01 to 07 |
-| 4.2 Listings | FR-LST-01 to 08 |
-| 4.2 Discovery | FR-BRW-01 to 04 |
-| 4.2 Rentals and 4.4.2, 4.4.4 | FR-REQ-01 to 10 |
-| 4.2 Payments and 4.4.3 | FR-PAY-01 to 10 |
-| 4.2 Reputation | FR-RAT-01 to 04 |
-| 4.2 Messaging and notifications | FR-MSG-01 to 04, FR-NTF-01 to 05 |
-| 4.3 Data view | Section 3.5 of the SRS, NFR-REL-01 |
-| 4.5 Deployment and 7 | SEC-12, NFR-MNT-01, NFR-POR-01, NFR-REL-02 |
-| 5.3 and 5.4 Security and trust | SEC-01 to 16, FR-ADM-01 to 03, FR-PAY-07, FR-PAY-08 |
-| P-01 to P-12 | See the right-hand column of section 6.2 |
+| SRS area | Requirements | Design element | Tests (examples) |
+|---|---|---|---|
+| Accounts | FR-AUTH-01 to 07, SEC-01, 02, 07, 11 | Accounts component; `users`, `login_attempts`, `verification_email_attempts`; `email_utils` | `test_registration_requires_verification_before_login`, `test_login_throttles_repeated_failures_and_clears_after_success` |
+| Listings and browse | FR-LST-01 to 09, FR-BRW-01 to 06 | Listings and Discovery; `equipment`; `static/uploads` | `test_listing_photo_upload_rejects_fake_image_content`, `test_browse_paginates_and_keeps_search_filters` |
+| Requests and pricing | FR-REQ-01 to 12 | Rental workflow; `borrowing_requests`; `BEGIN IMMEDIATE`; overdue hook | `test_hourly_request_rounds_up_and_requires_one_hour_minimum`, `test_unreturned_rental_is_marked_overdue_and_can_be_completed` |
+| Meetup, inspection, handover | FR-MTG-01 to 07 | Rental workflow; `rental_condition_photos`; meetup columns | `test_borrower_request_approval_and_demo_payment`, `test_handover_roles_and_replay_are_enforced` |
+| Payment, deposit, damage | FR-PAY-01 to 15, FR-EXT-07 | Payment component; signed QR tokens; deposit, damage, dispute columns | `test_deposit_requires_paid_pending_request_and_can_only_be_held_once`, `test_owner_can_uphold_or_cancel_a_disputed_damage_charge` |
+| Ratings | FR-RAT-01 to 04 | Ratings; `ratings` | `test_borrower_and_owner_can_review_each_other_once_after_completion` |
+| Messages and notifications | FR-MSG-01 to 06, FR-NTF-01 to 07 | Messages; `messages`, `notifications`, `rental_reminders`; `notification_utils` | `test_only_message_sender_can_delete_message`, `test_notification_email_is_opt_in_and_sent_to_recipient` |
+| Administration | FR-ADM-01 to 04 | Administration; `users.role`, `users.suspended` | `test_administrator_can_resolve_open_damage_dispute` |
+| Data retention | FR-DAT-01, 02 | `retention_cleanup.py`; `/account/delete` | `test_retention_cleanup_applies_only_eligible_rows` |
+| Security | SEC-03 to 06, 08 to 10, 12 to 16 | Section 5 | `test_login_session_timeout_and_cookie_security_attributes`, `test_exception_and_access_logs_do_not_expose_tokens` |
+| Reliability and performance | NFR-REL-01, 02, NFR-PERF-01 | `database.py`, `database_backup.py`, `performance_test.py` | `test_sqlite_foreign_keys_are_enabled_on_application_connections`, `test_backup_is_a_valid_copy_of_the_source_database` |
 
 ---
 
-## 9. Limitations and items to update
+## 9. Limitations and known issues
 
-1. **Baseline.** The description matches `app.py` at repository commit `2403816`. Backend changes made by Turay Edward Joe after that date must be added. Likely places: the payment, deposit, late-fee, and damage sequence (4.4.3), the data view (4.3), the route inventory (Appendix A), and the controls table (5.5).
-2. **To verify by testing:** the cause of the failed damage button; whether the unexpected logouts were caused by using two accounts in one browser; whether templates escape user text everywhere (SEC-15).
-3. **Decisions pending** from SRS section 6: public browsing, real payments, student ID verification, free-item late fees, hourly rental, administrator role, and scope for Week 16.
-4. **Not covered yet:** a detailed design of each template, performance measurements, and the test plan, which will go in `docs/testing/`.
+| # | Limitation | Effect | SRS |
+|---|---|---|---|
+| 1 | The production switch is not wired. `CAMPUSSHARE_ENV` is read only from `app.config`, nothing sets it from the environment, and no proxy-header handling or hop count is read | Behind an HTTPS proxy, no redirect, no HSTS, and cookies are not marked Secure | SEC-12 |
+| 2 | Student ID is stored but not verified | A person with any university mailbox can register | SEC-01 |
+| 3 | Payment is simulated | No real money moves | FR-EXT-07 |
+| 4 | Administrator cannot open pickup photos | A dispute decision lacks the evidence | FR-MTG-05 |
+| 5 | Rejecting an inspection sends no notification and has no test | The other party may not notice | FR-MTG-04 |
+| 6 | Countdown shows days only | Hourly rentals show "due today" | FR-REQ-10 |
+| 7 | Reminders and backups have Windows scripts only; photos are not in the backup | Manual setup on other systems | FR-EXT-06, NFR-REL-02 |
+| 8 | All routes in one file; ownership checks are repeated per route | Harder to review | NFR-MNT-02, SEC-08 |
+| 9 | A listing with one booking shows Booked for all dates | May mislead borrowers | FR-LST-06 |
+| 10 | Performance measured in-process only | No deployment figure | NFR-PERF-01 |
 
 ---
 
 ## Appendix A: Route inventory
 
-Access as built **(code)**. "Login" means the route redirects visitors to the login page.
+Access: **Public** = no login; **Login** = any logged-in user; **Owner**, **Borrower** = the owner of the listing or the borrower of the request; **Admin** = administrator; **Token** = signed link.
 
-| Route | Methods | Login | Who may act | Purpose |
-|---|---|---|---|---|
-| `/` | GET | No | Anyone | Home page |
-| `/register` | GET, POST | No | Visitor | Create account (`@buaa.edu.cn` only) |
-| `/login` | GET, POST | No | Visitor | Log in |
-| `/logout` | GET | No | Anyone | End session |
-| `/forgot-password` | GET, POST | No | Visitor | Start password reset (link printed to console) |
-| `/reset-password/<token>` | GET, POST | No | Holder of valid token | Set a new password (30 minute limit) |
-| `/dashboard` | GET | Yes | Registered user | Counts and average rating |
-| `/browse` | GET | No | Anyone | Search and filter listings |
-| `/equipment/<id>` | GET | No | Anyone | Item details and status |
-| `/list-item` | GET, POST | Yes | Registered user | Create listing |
-| `/my-listings` | GET | Yes | Registered user | Own listings with status |
-| `/edit-listing/<id>` | GET, POST | Yes | Listing owner | Edit listing |
-| `/delete-listing/<id>` | POST | Yes | Listing owner | Delete listing and its requests |
-| `/request-equipment/<id>` | POST | Yes | Registered user, not the owner | Request an item |
-| `/requests` | GET | Yes | Owner | Requests on own listings |
-| `/requests/<id>/approve` | POST | Yes | Listing owner | Approve |
-| `/requests/<id>/reject` | POST | Yes | Listing owner | Reject |
-| `/requests/<id>/complete` | POST | Yes | Listing owner | Mark returned, calculate late fee |
-| `/my-rentals` | GET | Yes | Borrower | Own rentals |
-| `/pay-rental/<id>` | POST | Yes | Borrower | Mark as Paid |
-| `/confirm-deposit/<id>` | POST | Yes | Listing owner | Mark deposit Held (after Paid) |
-| `/damage-status/<id>/<condition>` | POST | Yes | Listing owner | Record Good or Damaged, report, charge |
-| `/refund-deposit/<id>` | POST | Yes | Listing owner | Mark deposit Refunded (after Good Condition) |
-| `/rate/<id>` | GET, POST | Yes | Borrower of a Completed rental | Rate the owner, once |
-| `/my-reviews` | GET | Yes | Registered user | Reviews received |
-| `/students` | GET | Yes | Registered user | List of all other users (name, email) |
-| `/chat/<student_id>` | GET, POST | Yes | Registered user | Conversation; sends message and creates notification |
-| `/messages` | GET | Yes | Registered user | Conversation list with unread counts |
-| `/delete-message/<id>` | POST | Yes | Message sender | Delete own message |
-| `/notifications` | GET | Yes | Registered user | Notification list |
+| Route | Methods | Access | Purpose |
+|---|---|---|---|
+| `/` | GET | Public | Home page |
+| `/register` | GET, POST | Public | Create account, send verification email |
+| `/login` | GET, POST | Public | Log in, with lockout |
+| `/resend-verification` | GET, POST | Public | New verification email, limited per hour |
+| `/verify-email/<token>` | GET, POST | Token | Confirm email |
+| `/logout` | POST | Login | End session |
+| `/forgot-password` | GET, POST | Public | Request reset link |
+| `/reset-password/<token>` | GET, POST | Token | Set new password, once |
+| `/account/delete` | GET, POST | Login | Delete account, with password |
+| `/admin` | GET | Admin | Open disputes, listings, users |
+| `/admin/listings/<id>/remove` | POST | Admin | Remove a listing from view |
+| `/admin/users/<id>/suspension` | POST | Admin | Suspend or restore a user |
+| `/dashboard` | GET | Login | Summary and unread counts |
+| `/list-item` | GET, POST | Login | Create listing |
+| `/edit-listing/<id>` | GET, POST | Owner | Edit listing and photo |
+| `/delete-listing/<id>` | POST | Owner | Delete a listing with no history |
+| `/my-listings` | GET | Login | Own listings |
+| `/browse` | GET | Public | Search, filter, paginate |
+| `/equipment/<id>` | GET | Public | Detail page |
+| `/request-equipment/<id>` | POST | Login | Request an item |
+| `/requests` | GET | Login | Requests on own listings |
+| `/my-rentals` | GET | Login | Own borrowing requests |
+| `/requests/<id>/reject` | POST | Owner | Reject while Pending, refund if paid |
+| `/requests/<id>/schedule-meetup` | POST | Owner | Propose meetup |
+| `/requests/<id>/confirm-meetup` | POST | Borrower | Confirm meetup |
+| `/rentals/<id>/inspection-photo` | POST | Borrower | Upload pickup photo |
+| `/inspection-photos/<id>` | GET | Owner or Borrower | View a pickup photo |
+| `/rentals/<id>/verify-inspection` | POST | Owner or Borrower | Verify inspection |
+| `/rentals/<id>/reject-inspection` | POST | Owner or Borrower | Reject inspection with reason |
+| `/qr-payment/<id>` | GET | Borrower | Payment page and QR |
+| `/qr-payment/image/<token>` | GET | Token | QR image |
+| `/qr-payment/demo-preview/<id>` | GET | Borrower | Preview only; changes nothing |
+| `/qr-payment/confirm/<token>` | GET, POST | Borrower, Token | Record rental fee as Paid |
+| `/confirm-deposit/<id>` | POST | Owner | Mark deposit Held |
+| `/requests/<id>/approve` | POST | Owner | Approve |
+| `/rentals/<id>/ready-for-handover` | POST | Borrower | Confirm readiness |
+| `/requests/<id>/confirm-handover` | POST | Owner | Confirm handover |
+| `/requests/<id>/complete` | POST | Owner | Mark returned, compute late fee |
+| `/pay-late-fee/<id>` | POST | Borrower | Pay late fee |
+| `/damage-status/<id>/<condition>` | POST | Owner | Record Good Condition or Damaged |
+| `/damage-dispute/<id>` | POST | Borrower | Dispute within 48 hours |
+| `/damage-dispute/<id>/resolve` | POST | Owner or Admin | Uphold, revise, or cancel |
+| `/settle-damage/<id>` | POST | Owner | Apply charge to deposit |
+| `/refund-deposit/<id>` | POST | Owner | Record deposit refund |
+| `/rate/<id>` | GET, POST | Borrower or Owner | Review the other party |
+| `/my-reviews` | GET | Login | Reviews received |
+| `/students` | GET | Login | Names of other users |
+| `/chat/<id>` | GET, POST | Login | Conversation |
+| `/requests/<id>/message-borrower` | GET | Owner | Open a chat with the borrower |
+| `/messages` | GET | Login | Conversation list |
+| `/delete-message/<id>` | POST | Sender | Delete own message |
+| `/notifications` | GET | Login | Notification list |
+| `/notifications/<id>/read` | POST | Login | Mark own notice read |
+| `/notifications/email-preference` | POST | Login | Opt in or out of email notices |
+
+---
+
+## Appendix B: Glossary
+
+| Term | Meaning |
+|---|---|
+| Borrower | The student who requests an item |
+| Owner | The student who lists an item and decides on its requests |
+| Administrator | A user whose email is on the configured list; can remove listings, suspend users, and decide disputes |
+| Request | One borrowing request; also called a rental once it is approved |
+| Meetup | The in-person meeting where owner and borrower inspect the item |
+| Pickup photo | The photo of the item's condition, taken at the meetup before payment |
+| Inspection verification | Each party's confirmation that the item matches its description |
+| Deposit | The security amount held for damage or loss; not part of the rental fee |
+| Held, Refunded, Settled | Deposit states: Held after the owner confirms it; Refunded when returned; Settled when a damage charge is applied |
+| Late fee | Charge for returning after the end date: the saved rate times the late days |
+| Overdue | Request status for an approved rental past its end date and not returned |
+| Dispute window | 48 hours after a damage report in which the borrower can dispute the charge |
+| QR payment | The simulated payment: a QR code that opens a signed confirmation link valid for 10 minutes |
+| CSRF | Cross-site request forgery; blocked by a secret token on each form |
+| STRIDE | Threat categories: Spoofing, Tampering, Repudiation, Information disclosure, Denial of service, Elevation of privilege |
+| SRS | Software Requirements Specification, `docs/requirements/SRS.md` |
+| ISO/IEC/IEEE 42010 | The standard for architecture descriptions (stakeholders, viewpoints, views, rationale) |
+| Blueprint | A Flask feature for splitting routes into modules |
+| SMTP | The protocol used to send email |
+| HSTS | A header telling browsers to use HTTPS only |

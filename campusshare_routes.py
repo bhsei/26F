@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 import io
 
 import hashlib
@@ -22,6 +22,14 @@ from app import app, serializer
 from database import connect_database
 from email_utils import send_password_reset_email, send_verification_email
 from notification_utils import create_notification
+
+
+# China Standard Time (UTC+8) for CampusShare rental activities.
+CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+def china_now():
+    return datetime.now(CHINA_TIMEZONE).replace(tzinfo=None)
+
 
 
 LOGIN_ATTEMPT_LIMIT = 5
@@ -118,7 +126,7 @@ def mark_overdue_rentals():
                       AND datetime(
                           borrowing_requests.end_date || ' ' ||
                           borrowing_requests.end_time
-                      ) < datetime('now', 'localtime')
+                      ) < datetime('now', '+8 hours')
                   )
                   OR
                   (
@@ -126,7 +134,7 @@ def mark_overdue_rentals():
                           borrowing_requests.price_unit, 'day'
                       ) <> 'hour'
                       AND date(borrowing_requests.end_date)
-                          < date('now', 'localtime')
+                          < date('now', '+8 hours')
                   )
               )
             """
@@ -145,13 +153,13 @@ def mark_overdue_rentals():
                           price_unit = 'hour'
                           AND end_time IS NOT NULL
                           AND datetime(end_date || ' ' || end_time)
-                              < datetime('now', 'localtime')
+                              < datetime('now', '+8 hours')
                       )
                       OR
                       (
                           COALESCE(price_unit, 'day') <> 'hour'
                           AND date(end_date)
-                              < date('now', 'localtime')
+                             < date('now', '+8 hours')
                       )
                   )
                 """,
@@ -834,7 +842,7 @@ def dashboard():
         WHERE equipment.is_removed = 0
         AND (
     equipment.available_until IS NULL
-    OR date(equipment.available_until) >= date('now', 'localtime')
+    OR date(equipment.available_until) >= date('now', '+8 hours')
 )
         AND NOT EXISTS (
             SELECT 1
@@ -1086,7 +1094,7 @@ def browse():
                 users.name,
              CASE
     WHEN equipment.available_until IS NOT NULL
-         AND date(equipment.available_until) < date('now', 'localtime')
+         AND date(equipment.available_until) < date('now', '+8 hours')
     THEN 'Expired'
 
     WHEN EXISTS (
@@ -1366,13 +1374,16 @@ def request_equipment(equipment_id):
                 },
                 request.form,
             )
-        if start_datetime < datetime.now():
+            
+           
+        if start_datetime < china_now():
             connection.close()
             return render_equipment_details(
                 equipment_id,
                 {"start_time": "Choose a future start time."},
                 request.form,
             )
+
         billable_hours = max(
             1,
             math.ceil((end_datetime - start_datetime).total_seconds() / 3600),
@@ -1387,23 +1398,27 @@ def request_equipment(equipment_id):
             )
         billable_hours = None
 
-    # Dates must be inside equipment availability
-    if start_date < item[9] or end_date > item[10]:
-        connection.close()
-        errors = {}
-        if start_date < item[9]:
-            errors["start_date"] = (
-                "Choose a date on or after the equipment's available-from date."
+       
+        # Dates must be inside equipment availability
+        if start_date < item[9] or end_date > item[10]:
+            connection.close()
+            errors = {}
+            if start_date < item[9]:
+                errors["start_date"] = (
+                    "Choose a date on or after the equipment's available-from date."
+                )
+            if end_date > item[10]:
+                errors["end_date"] = (
+                    "Choose a date on or before the equipment's available-until date."
+                )
+            return render_equipment_details(
+                equipment_id,
+                errors,
+                request.form,
             )
-        if end_date > item[10]:
-            errors["end_date"] = (
-                "Choose a date on or before the equipment's available-until date."
-            )
-        return render_equipment_details(
-            equipment_id,
-            errors,
-            request.form,
-        )
+
+                
+
 
     connection.execute("BEGIN IMMEDIATE")
     existing_bookings = connection.execute(
@@ -1411,12 +1426,13 @@ def request_equipment(equipment_id):
         SELECT start_date, end_date, start_time, end_time, price_unit
         FROM borrowing_requests
         WHERE equipment_id = ?
-        AND start_date <= ?
-        AND end_date >= ?
-        AND status IN ('Pending', 'Approved', 'Overdue')
+            AND start_date <= ?
+            AND end_date >= ?
+            AND status IN ('Pending', 'Approved', 'Overdue')
         """,
         (equipment_id, end_date, start_date),
     ).fetchall()
+
     if booking_overlaps_existing(
         start,
         end,
@@ -1440,7 +1456,7 @@ def request_equipment(equipment_id):
             status_code=409,
         )
 
-
+              
 
     if item[6] == "Paid" and price_unit == "hour":
         total_price = billable_hours * float(item[7])
@@ -1739,7 +1755,7 @@ def schedule_meetup(request_id):
             "Please choose a valid meetup date and time."
         )
 
-    if meetup_datetime <= datetime.now():
+    if meetup_datetime <= china_now():
         return error_response(
             "The meetup must be scheduled for a future time."
         )
@@ -1854,7 +1870,9 @@ def confirm_meetup(request_id):
 
         if (
             not rental[3]
-            or datetime.fromisoformat(rental[3]) <= datetime.now()
+            
+or datetime.fromisoformat(rental[3]) <= china_now()
+
         ):
             return error_response(
                 "This meetup time has passed. Ask the owner to reschedule.",
@@ -1981,7 +1999,7 @@ def upload_pickup_inspection_photo(request_id):
 (
     request_id,
     session["user_id"],
-    datetime.now().strftime("%Y-%m-%dT%H:%M")
+    china_now().strftime("%Y-%m-%dT%H:%M")
 )
 
         ).fetchone()
@@ -2377,7 +2395,9 @@ CASE
          AND borrowing_requests.awaiting_handover = 0
     THEN CAST(
         julianday(borrowing_requests.end_date)
-        - julianday(date('now', 'localtime'))
+        
+- julianday(date('now', '+8 hours'))
+
         AS INTEGER
     )
     ELSE NULL
@@ -2927,11 +2947,11 @@ def complete_request(request_id):
             datetime.strptime(request_data[7], "%H:%M").time(),
         )
         late_seconds = (
-            datetime.now() - agreed_return_datetime
+            china_now() - agreed_return_datetime
         ).total_seconds()
         late_days = max(0, math.ceil(late_seconds / (24 * 60 * 60)))
     else:
-        actual_return_date = datetime.now().date()
+        actual_return_date = china_now().date()
         late_days = max(0, (actual_return_date - agreed_return_date).days)
 
     daily_price = float(request_data[5] or 0)
@@ -5105,12 +5125,7 @@ def refund_deposit(request_id):
             "This deposit is no longer eligible for refund.",
             409
         )
-    if cursor.rowcount != 1:
-                        connection.close()
-                        return error_response(
-                            "This deposit is no longer eligible for refund.",
-                            409
-                        )
+
 
     connection.commit()
     connection.close()
@@ -5291,7 +5306,7 @@ def reject_equipment_inspection(request_id):
             """,
             (
                 request_id,
-                datetime.now().strftime("%Y-%m-%dT%H:%M")
+                china_now().strftime("%Y-%m-%dT%H:%M")
             )
         ).fetchone()
 
@@ -5327,11 +5342,14 @@ def reject_equipment_inspection(request_id):
               AND payment_status = 'Unpaid'
               AND inspection_rejected_at IS NULL
             """,
-            (
+        (
+               
+               
                 user_id,
                 reason,
-                datetime.now().isoformat(timespec="seconds"),
-                request_id
+                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                request_id,
+
             )
         )
 

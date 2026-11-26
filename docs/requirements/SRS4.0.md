@@ -10,7 +10,7 @@
 | **Team** | Turay Edward Joe (backend and business logic), Amanda Nancy Skaikay (requirements analysis and usability review), Sandra Masiwa (system design and documentation) |
 | **Standard followed** | ISO/IEC/IEEE 29148:2018 (structure adapted for a course project) |
 | **Application baseline** | Branch `joe-work` (snapshot dated 2026-10-26), reviewed 2026-10-27. Not yet merged into `main` |
-| **Location** | `docs/requirements/SRS.md` |
+| **Location** | `docs/requirements/SRS4.0.md` |
 
 **Implementation evidence update:** Selected requirements and the traceability table were checked against `main` at `5fbb0de`. The Windows test suite passed all 95 tests. The application baseline above records the original v0.4 review snapshot.
 
@@ -178,7 +178,7 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 
 *FR-EXT-06 note:* scripts exist for Windows only (G-25).
 
-*FR-EXT-03 note:* email sending is implemented and tested with a simulated mail server. Delivery through a real SMTP account to a real inbox has not been verified (README, "Still to do").
+*FR-EXT-03 note:* Automated tests mock the SMTP client. Registration reports delivery failure, password reset keeps the same response for known and unknown addresses, and an in-app notification is kept if its email fails. Confirm the proposed failure behavior before treating it as a shared rule for all email flows.
 
 ### 3.2 Functional requirements
 
@@ -192,11 +192,11 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-AUTH-04 | The system shall let a user with a verified, non-suspended account log in with email and password, ignoring letter case in the email. | M | Done | T |
 | FR-AUTH-05 | The system shall end the user's session on logout, and logout shall require a form submission protected against forgery. | M | Done | T |
 | FR-AUTH-06 | The system shall let a user reset a forgotten password using a link sent to the registered email, valid for 30 minutes and usable once. | M | Partial | T |
-| FR-AUTH-07 | The system shall let a user request a new verification email, limited to three requests per email and IP address per hour. | S | Partial | T |
+| FR-AUTH-07 | The system shall let a user request a new verification email, limited to three requests per email or source IP address per hour. | S | Partial | T |
 
 *FR-AUTH-06 delivery check:* Verify delivery to a real inbox using the demo SMTP configuration (FR-EXT-03).
 
-*FR-AUTH-07 team comment:* Structure implemented but not functional; depends on access to the SMTP server.
+*FR-AUTH-07 note:* Automated tests cover resend throttling and the generic response. Status remains Partial until a resent link arrives in a real inbox and activates the account.
 
 *FR-AUTH-06 note:* The link expires after 30 minutes. A successful reset invalidates it. Automated tests cover expiration and single use. Status remains Partial pending real-inbox delivery.
 
@@ -355,7 +355,7 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-MTG-01 | After a borrower submits a request, the system shall prompt the borrower and the owner to arrange a physical meetup, and shall let the owner either reject the request or schedule the meetup and inspection. | M | To verify | T |
 | FR-MTG-02 | The system shall let the borrower confirm the scheduled meetup and inspection. | M | To verify | T |
 | FR-MTG-03 | After the inspection, the system shall let the borrower confirm whether to proceed with the rental, and shall not accept payment or approval before that confirmation. | M | To verify | T |
-| FR-MTG-04 | If the inspection fails or the borrower decides not to proceed, the system shall change the request from Pending to Rejected, notify both parties, and record no payment or deposit. | M | To verify | T |
+| FR-MTG-04 | If the inspection fails or the borrower decides not to proceed, the system shall change the request from Pending to Rejected, notify both parties, and record no payment or deposit. | M | Partial | T |
 | FR-MTG-05 | After the borrower has paid the rental fee, the system shall let the borrower upload photos of the item's condition (JPG, PNG, or WebP, at most 5 MB, checked by file content). The photos shall be linked to the request, visible to the borrower, the owner, and an administrator handling a dispute, and kept with the request so that they can be compared with the condition on return. | S | To verify | T |
 | FR-MTG-06 | After approval, the system shall let the borrower confirm that they are ready to receive the item. | M | To verify | T |
 | FR-MTG-07 | After approval, the system shall let the owner confirm that the item was handed over, shall start the rental countdown at that moment, and shall not offer Mark as Returned before handover is confirmed. | M | To verify | T |
@@ -677,7 +677,7 @@ flowchart TD
     C -- No --> D[Account created, not yet active]
     D --> M[Verification email sent]
     M --> V{"Link confirmed within 24 hours? [SEC-01]"}
-    V -- No --> R["Resend verification, limited to 3 per email and IP per hour [FR-AUTH-07]"]
+    V -- No --> R["Resend verification, limited to 3 per email or source IP per hour [FR-AUTH-07]"]
     R --> M
     V -- Yes --> Q["Link opens a confirmation form; user submits it"]
     Q --> E[Account active]
@@ -747,6 +747,7 @@ The branch contains 76 automated tests, which all passed in the reviewer's run o
 | TC-28 Try Mark as Returned before handover is confirmed | FR-MTG-07, FR-PAY-03 | Option not offered; action refused |
 | TC-29 Owner edits a listing that has a Pending request | FR-LST-09 | Edit refused |
 | TC-30 Open the main pages in Chrome, Edge, Firefox, and Safari | FR-EXT-01 | Pages work in each browser |
+| TC-31 Real email delivery using the demo SMTP configuration | FR-EXT-03, FR-AUTH-06, FR-AUTH-07 | Register with a test Beihang inbox; receive the verification email and a resend, confirm the account, receive and use a reset link, then opt in and receive a notification email. Record the commit and results without copying links or credentials. |
 | TC-31 Request an item, wait for the QR link to expire (10 minutes), then open it | FR-EXT-07 | Payment is not recorded |
 
 *TC-18 to TC-31 are new in v0.4 and have not been run yet.*
@@ -758,7 +759,7 @@ This table links every requirement to the evidence recorded for it. The 76 autom
 | Requirement | Ver | Status | Recorded evidence | Action |
 |---|---|---|---|---|
 | FR-EXT-01 | D | To verify | Manual: TC-30 (new, not yet run) | Run the test case |
-| FR-EXT-03 | T | Partial | Automated tests, topic: notifications and email | Name the automated test that covers it |
+| FR-EXT-03 | T | Partial | Automated: `test_sends_email_verification_message`, `test_sends_reset_email_over_starttls`, `test_sends_notification_email` | Run TC-31 with a real SMTP account and test inbox |
 | FR-EXT-04 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-EXT-05 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-EXT-06 | I | Partial | None recorded | Add a test case or record an inspection result |
@@ -769,7 +770,7 @@ This table links every requirement to the evidence recorded for it. The 76 autom
 | FR-AUTH-04 | T | Done | Automated tests, topic: registration and email verification | Name the automated test that covers it |
 | FR-AUTH-05 | T | Done | Automated tests, topic: CSRF | Name the automated test that covers it |
 | FR-AUTH-06 | T | Partial | Automated: `test_expired_password_reset_link_is_rejected`, `test_password_reset_link_can_only_be_used_once` | Verify delivery to a real inbox (FR-EXT-03) |
-| FR-AUTH-07 | T | Partial | Automated tests, topic: registration and email verification | Name the automated test that covers it |
+| FR-AUTH-07 | T | Partial | Automated: `test_verification_resends_are_limited_per_email_and_ip`, `test_verification_resends_limited_across_different_ips`, `test_resend_verification_response_does_not_disclose_account_status` | Verify resend delivery in TC-31 |
 | FR-LST-01 | T | Done | None recorded | Add a test case or record an inspection result |
 | FR-LST-02 | T | Done | Automated tests, topic: listing and rental validation | Name the automated test that covers it |
 | FR-LST-03 | T | Done | Manual: TC-03; Automated tests, topic: listing and rental validation | None |
@@ -833,7 +834,7 @@ This table links every requirement to the evidence recorded for it. The 76 autom
 | FR-MTG-01 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-MTG-02 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-MTG-03 | T | To verify | None recorded | Add a test case or record an inspection result |
-| FR-MTG-04 | T | To verify | Manual: TC-21 (new, not yet run) | Run the test case |
+| FR-MTG-04 | T | Partial | Inspection: `reject_equipment_inspection` changes a confirmed, unpaid request from Pending to Rejected | Add notifications for both parties and run TC-21 |
 | FR-MTG-05 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-MTG-06 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-MTG-07 | T | To verify | Manual: TC-28 (new, not yet run) | Run the test case |

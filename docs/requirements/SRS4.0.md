@@ -241,7 +241,6 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-REQ-01 | The system shall let a logged-in user request a listing for a date range, or for a time range on one day for hourly listings. | M | Done | T |
 | FR-REQ-02 | The system shall reject a request on the user's own listing. | M | Done | T |
 | FR-REQ-04 | The system shall reject a request that overlaps an existing pending or approved booking of the same listing. | M | Done | T |
-
 | FR-REQ-05 | The system shall calculate the rental fee using the saved rate: whole days for daily rentals; whole billable hours for hourly rentals, rounding any partial hour up to the next full hour, with a minimum charge of one hour; and zero for Free listings. The security deposit shall be shown separately and shall not be included in the rental fee. | M | Done | T |
 | FR-REQ-06 | The system shall show the borrower a running cost estimate while they choose dates or times, before they submit. | S | Done | D |
 | FR-REQ-07 | The system shall let an owner reject a request only while it is Pending. The system shall let an owner approve a request only while it is Pending, and only after the borrower has confirmed the inspection (FR-MTG-03), the rental fee is Paid, condition photos are uploaded (FR-MTG-05), and the deposit is Held (FR-PAY-02). | M | To verify | T |
@@ -249,12 +248,12 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-REQ-09 | The system shall allow several non-overlapping bookings of one listing. | S | Done | T |
 | FR-REQ-10 | The system shall show a borrower the time remaining on an approved rental, counted from the owner's confirmation of handover (FR-MTG-07) to the agreed end. | C | To verify | T |
 | FR-REQ-11 | The system shall check for an overlapping booking and save a new request in a single step, so that two simultaneous requests for overlapping times cannot both be saved. | M | To verify | T |
-| FR-REQ-12 | The system shall change an Approved rental to Overdue automatically when its end date has passed without a return. (Merged from FR-PAY-09 in v0.4.) | M | To verify | T |
+| FR-REQ-12 | The system shall automatically change a rental from Approved to Overdue when the agreed return deadline has passed and the equipment has been handed over but not returned. Daily and hourly rentals shall use China Standard Time (UTC+8). | M | Done | T |
 
 
 *FR-REQ-05 team comment:* The current system charges hourly rentals in whole hours, rounding up any partial hour. Per-minute pricing was proposed but has not been implemented.
 
-*FR-REQ-08 team comment:* Need to test the Overdue status.
+*FR-REQ-08 team comment:* Automatic overdue detection has been tested successfully for daily and hourly rentals. Four automated tests passed, including checks that rentals are not marked Overdue before their deadline or before handover. Other status transitions still require separate verification.
 
 
 *FR-REQ-05 examples:* At 10 per hour, a 90-minute rental costs 20 (rounded up to 2 hours), and a 30-minute rental costs 10 (minimum 1 hour). At 10 per day, a 3-day rental costs 30 (TC-05).
@@ -267,7 +266,7 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 |---|---|---|
 | Pending to Approved | FR-REQ-07 | To verify |
 | Pending to Rejected | FR-REQ-07, FR-MTG-04, FR-PAY-14 | Partial. The paid-rejection refund path is tested; verify the inspection-failure path separately. |
-| Approved to Overdue | FR-REQ-12 | To verify |
+| Approved to Overdue | FR-REQ-12 | Done |
 | Approved to Completed | FR-PAY-03 | Done |
 | Overdue to Completed | FR-PAY-03 | To verify |
 
@@ -800,7 +799,7 @@ This table links every requirement to the evidence recorded for it. The historic
 | FR-REQ-09 | T | Done | Automated tests, topic: listing and rental validation | Name the automated test that covers it |
 | FR-REQ-10 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-REQ-11 | T | To verify | Manual: TC-24 (new, not yet run) | Run the test case |
-| FR-REQ-12 | T | To verify | Automated tests, topic: status transitions | Name the automated test that covers it |
+| FR-REQ-12 | T | Done | Automated tests passed: test_unreturned_rental_is_marked_overdue_and_can_be_completed (tests/test_app.py), plus 3 tests in tests/test_hourly_overdue.py covering overdue detection, deadlines, and handover. | None |
 | FR-PAY-01 | T | Done | Automated tests, topic: payment, deposit and damage handling | Name the automated test that covers it |
 | FR-PAY-02 | T | To verify | Manual: TC-22; Automated tests, topic: payment, deposit and damage handling | None |
 | FR-PAY-03 | T | Partial | Manual: TC-28; Automated tests, topic: payment, deposit and damage handling | None |

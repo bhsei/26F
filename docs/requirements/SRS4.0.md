@@ -4,15 +4,15 @@
 |---|---|
 | **Project** | CampusShare (Team 26F) |
 | **Document** | Software Requirements Specification |
-| **Version** | v0.4 (draft for team review) |
-| **Date** | 2026-11-03 |
+| **Version** | v0.4.1 (evidence update for team review) |
+| **Date** | 2026-11-29 (evidence update; original v0.4 dated 2026-11-03) |
 | **Author** | Sandra Masiwa (system design and documentation) |
 | **Team** | Turay Edward Joe (backend and business logic), Amanda Nancy Skaikay (requirements analysis and usability review), Sandra Masiwa (system design and documentation) |
 | **Standard followed** | ISO/IEC/IEEE 29148:2018 (structure adapted for a course project) |
-| **Application baseline** | Branch `joe-work` (snapshot dated 2026-10-26), reviewed 2026-10-27. Not yet merged into `main` |
+| **Original v0.4 application baseline (historical)** | Branch `joe-work` (snapshot dated 2026-10-26), reviewed 2026-10-27. The original review stated that this snapshot had not yet been merged into `main`; this is not the current branch status. |
 | **Location** | `docs/requirements/SRS4.0.md` |
 
-**Implementation evidence update:** Selected requirements and the traceability table were checked against `main` at `5fbb0de`. The Windows test suite passed all 95 tests. The application baseline above records the original v0.4 review snapshot.
+**Implementation evidence update (2026-11-29):** The current `main` branch was checked on GitHub and includes commit `9ef5438` (*Fix CampusShare rental timezone and inspection handling*). The team-repository test run passed all 95 discovered tests; a separate working copy passed all 96 discovered tests. Recent changes include China Standard Time (UTC+8) for rental-related date comparisons and a corrected parameter list for equipment-inspection rejection. These results confirm the tested suites, not every manual acceptance test or every requirement still marked *Partial* or *To verify*. The original v0.4 baseline is retained above as historical context.
 
 ## Revision history
 
@@ -22,6 +22,7 @@
 | v0.2 | 2026-10-22 | Sandra Masiwa | Statuses revised after retesting the first prototype; status legend extended |
 | v0.3 | 2026-10-27 | Sandra Masiwa | Re-baselined against branch `joe-work`: statuses checked by running the 76 automated tests and reading the code; new requirements added for features built since v0.1; Appendix A rewritten to show what was resolved |
 | v0.4 | 2026-11-03 | Sandra Masiwa | Responds to the peer-review issues from Team E and Team D (Appendix B). The borrowing lifecycle is reordered so that approval comes after inspection, payment, and deposit (sections 4.1 and 4.2, which now show every stage from request to completed, including inspection, payment, countdown, overdue, return, damage, and deposit refund). Added: meetup, inspection, and handover requirements; payment, deposit, and dispute rules aligned; interface requirements; data retention rules; a requirement-to-test table; withdrawn IDs list. Status values now use only the section 1.5 legend. They were mapped from evidence already in this document; the code was not re-run for v0.4, so items marked To verify need a check. Rules marked *(proposed, to confirm)* need a team decision (section 6.2). Appendix A states completed |
+| v0.4.1 | 2026-11-29 | Team 26F (evidence update) | Documented commit `9ef5438`, recorded the 95-test team run and 96-test separate working copy, and corrected the duplicate acceptance-test ID `TC-31` to `TC-32`. Historical v0.3/v0.4 evidence and unverified requirements are retained. |
 
 ## Table of contents
 
@@ -240,7 +241,8 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-REQ-01 | The system shall let a logged-in user request a listing for a date range, or for a time range on one day for hourly listings. | M | Done | T |
 | FR-REQ-02 | The system shall reject a request on the user's own listing. | M | Done | T |
 | FR-REQ-04 | The system shall reject a request that overlaps an existing pending or approved booking of the same listing. | M | Done | T |
-| FR-REQ-05 | The system shall calculate the rental fee from the saved rate: whole days for daily rentals; for hourly rentals, the duration in hours and minutes multiplied by the hourly rate, with a minimum billable duration of 1 hour; zero for Free listings. The deposit is not part of the rental fee. *(minimum duration and per-minute rule proposed, to confirm; section 6.2, question 12)* | M | Partial | T |
+
+| FR-REQ-05 | The system shall calculate the rental fee using the saved rate: whole days for daily rentals; whole billable hours for hourly rentals, rounding any partial hour up to the next full hour, with a minimum charge of one hour; and zero for Free listings. The security deposit shall be shown separately and shall not be included in the rental fee. | M | Done | T |
 | FR-REQ-06 | The system shall show the borrower a running cost estimate while they choose dates or times, before they submit. | S | Done | D |
 | FR-REQ-07 | The system shall let an owner reject a request only while it is Pending. The system shall let an owner approve a request only while it is Pending, and only after the borrower has confirmed the inspection (FR-MTG-03), the rental fee is Paid, condition photos are uploaded (FR-MTG-05), and the deposit is Held (FR-PAY-02). | M | To verify | T |
 | FR-REQ-08 | The system shall allow only the status changes shown in section 4.1 and listed in the table below, and shall refuse every other change. | M | Partial | T |
@@ -249,11 +251,13 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 | FR-REQ-11 | The system shall check for an overlapping booking and save a new request in a single step, so that two simultaneous requests for overlapping times cannot both be saved. | M | To verify | T |
 | FR-REQ-12 | The system shall change an Approved rental to Overdue automatically when its end date has passed without a return. (Merged from FR-PAY-09 in v0.4.) | M | To verify | T |
 
-*FR-REQ-05 team comment:* Need to narrow the calculation down to minutes.
+
+*FR-REQ-05 team comment:* The current system charges hourly rentals in whole hours, rounding up any partial hour. Per-minute pricing was proposed but has not been implemented.
 
 *FR-REQ-08 team comment:* Need to test the Overdue status.
 
-*FR-REQ-05 examples:* at 10 per hour, a 90-minute rental costs 15 and a 30-minute rental costs 10 (the 1-hour minimum). At 10 per day, 3 days cost 30 (TC-05).
+
+*FR-REQ-05 examples:* At 10 per hour, a 90-minute rental costs 20 (rounded up to 2 hours), and a 30-minute rental costs 10 (minimum 1 hour). At 10 per day, a 3-day rental costs 30 (TC-05).
 
 *FR-REQ-07 note:* v0.3 showed approval before the meetup, which broke the lifecycle in section 4.1. In v0.4 approval is the last step before handover. Reviewers report that the code already works in this order; the team is to confirm this against the code.
 
@@ -423,7 +427,7 @@ CampusShare has one account type with a role field. Full detail is in `user-role
 
 *NFR-REL-02 note:* `database_backup.py` makes consistent copies and a Windows scheduler installer exists. On macOS and Linux the team must schedule it. Uploaded photos are not backed up.
 
-*NFR-MNT-02 note:* 76 automated tests exist and pass. The application is split into `app.py`, `campusshare_routes.py`, and `database.py`, but the routes remain in one file of about 3,700 lines.
+*NFR-MNT-02 note:* The earlier reviewer run included 76 passing tests; the latest team worktree run included 95 passing tests, and the separate working copy included 96. The application is split into `app.py`, `campusshare_routes.py`, and `database.py`, but most routes remain in one large module.
 
 *NFR-POR-01 note:* macOS was reported by the team, Windows is the development system, and the test suite passed on Linux.
 
@@ -698,7 +702,7 @@ flowchart TD
 
 ### 5.1 Automated tests
 
-The branch contains 76 automated tests, which all passed in the reviewer's run on 2026-10-27 (Linux, Python 3.12). They run with `python -m unittest discover -s tests -v` and use a temporary database. They cover registration and email verification, login lockout, sessions and cookies, CSRF, password rules, administrator actions, listing and rental validation, hourly and daily pricing, status transitions, late fees, payment, deposit and damage handling, disputes, ratings, notifications and email, return reminders, photo upload, database integrity, backups, and error pages.
+The original v0.3 reviewer run on 2026-10-27 (Linux, Python 3.12) contained 76 passing automated tests. In the subsequent November 2026 checks, the team Git worktree passed **95 tests** and a separate working copy passed **96 tests**, each with no test failures, using `python -m unittest discover -s tests -p "test_*.py"`. The difference in totals reflects the tested file sets; it is not evidence of a failed test. The automated suite covers registration and email verification, login lockout, sessions and cookies, CSRF, password rules, administrator actions, listing and rental validation, hourly and daily pricing, status transitions, late fees, payment, deposit and damage handling, disputes, ratings, notifications and email, return reminders, photo upload, database integrity, backups, and error pages. The team should continue mapping individual tests to requirement IDs in section 5.4.
 
 ### 5.2 Statuses confirmed without an automated test
 
@@ -736,7 +740,7 @@ The branch contains 76 automated tests, which all passed in the reviewer's run o
 | TC-17 View the app on a 360 px wide screen | NFR-USE-03 | No sideways scrolling |
 | TC-18 Try to refund the deposit when the condition is Damaged, then when it is Good Condition and the rental is Completed | FR-PAY-06 | Refused when Damaged; accepted when Good Condition |
 | TC-19 Start the application without a secret key configured | SEC-04 | The application refuses to start |
-| TC-20 Request 90 minutes, then 30 minutes, of an hourly item at 10 per hour | FR-REQ-05 | Totals are 15 and 10 |
+| TC-20 Request 90 minutes, then 30 minutes, of an hourly item at 10 per hour | FR-REQ-05 | Totals are 20 and 10, respectively, because partial hours are rounded up. |
 | TC-21 Report a failed inspection after the meetup | FR-MTG-04, FR-REQ-08 | Request becomes Rejected; no payment or deposit is recorded |
 | TC-22 Owner tries to approve before the fee is Paid, and before the deposit is Held | FR-REQ-07, FR-PAY-02 | Approval refused both times |
 | TC-23 Owner rejects after the borrower has paid | FR-PAY-14 | Request Rejected; rental fee refunded and deposit released |
@@ -748,13 +752,13 @@ The branch contains 76 automated tests, which all passed in the reviewer's run o
 | TC-29 Owner edits a listing that has a Pending request | FR-LST-09 | Edit refused |
 | TC-30 Open the main pages in Chrome, Edge, Firefox, and Safari | FR-EXT-01 | Pages work in each browser |
 | TC-31 Real email delivery using the demo SMTP configuration | FR-EXT-03, FR-AUTH-06, FR-AUTH-07 | Register with a test Beihang inbox; receive the verification email and a resend, confirm the account, receive and use a reset link, then opt in and receive a notification email. Record the commit and results without copying links or credentials. |
-| TC-31 Request an item, wait for the QR link to expire (10 minutes), then open it | FR-EXT-07 | Payment is not recorded |
+| TC-32 Request an item, wait for the QR link to expire (10 minutes), then open it | FR-EXT-07 | Payment is not recorded |
 
-*TC-18 to TC-31 are new in v0.4 and have not been run yet.*
+*TC-18 to TC-32 were introduced in v0.4. Some functions are covered by automated tests, but completion of the individual manual acceptance tests has not been established for every case. Record manual outcomes separately rather than treating the successful automated suite as proof of every manual case.*
 
 ### 5.4 Requirement-to-test table
 
-This table links every requirement to the evidence recorded for it. The 76 automated tests are described only by topic in section 5.1, so the second-last column shows the topic they fall under. The team should replace the topic with the test names (see the last column). Requirements marked "None recorded" have no recorded test or inspection yet.
+This table links every requirement to the evidence recorded for it. The historical 76-test run and the later 95/96-test runs are summarized in section 5.1; for requirements without a named test, the evidence column shows the relevant topic rather than claiming full verification. The team should replace the topic with the test names (see the last column). Requirements marked "None recorded" have no recorded test or inspection yet.
 
 | Requirement | Ver | Status | Recorded evidence | Action |
 |---|---|---|---|---|
@@ -763,7 +767,7 @@ This table links every requirement to the evidence recorded for it. The 76 autom
 | FR-EXT-04 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-EXT-05 | T | To verify | None recorded | Add a test case or record an inspection result |
 | FR-EXT-06 | I | Partial | None recorded | Add a test case or record an inspection result |
-| FR-EXT-07 | T | To verify | Manual: TC-31 (new, not yet run) | Run the test case |
+| FR-EXT-07 | T | To verify | Manual: TC-32 (not yet confirmed) | Run the test case |
 | FR-AUTH-01 | T | Done | Automated tests, topic: registration and email verification | Name the automated test that covers it |
 | FR-AUTH-02 | T | Done | Manual: TC-01; Automated tests, topic: registration and email verification | None |
 | FR-AUTH-03 | T | Done | Automated tests, topic: registration and email verification | Name the automated test that covers it |
@@ -789,7 +793,7 @@ This table links every requirement to the evidence recorded for it. The 76 autom
 | FR-REQ-01 | T | Done | Automated tests, topic: listing and rental validation | Name the automated test that covers it |
 | FR-REQ-02 | T | Done | Manual: TC-04; Automated tests, topic: listing and rental validation | None |
 | FR-REQ-04 | T | Done | Manual: TC-06, TC-24; Automated tests, topic: listing and rental validation | None |
-| FR-REQ-05 | T | Partial | Manual: TC-05, TC-20; Automated tests, topic: hourly and daily pricing | None |
+| FR-REQ-05 | T | Done | Automated tests cover daily pricing and hourly pricing rounded up to whole hours. TC-05 and TC-20 describe the expected results. | Confirm the billing rule with the team. |
 | FR-REQ-06 | D | Done | Section 5.2: Read the script in `item_details.html` | None |
 | FR-REQ-07 | T | To verify | Manual: TC-22; Automated tests, topic: status transitions | None |
 | FR-REQ-08 | T | Partial | Manual: TC-07, TC-21; Automated tests, topic: status transitions | None |
@@ -896,7 +900,7 @@ The decisions below are settled by the implementation or by the team's review of
 | 9 | Who decides a damage dispute: the owner alone, or the administrator when the owner and borrower do not agree? | FR-PAY-08 and FR-ADM-03 currently describe different deciders |
 | 10 | Does handover need inspection approval from both the borrower and the owner, or from the borrower only? | The code is reported to need both; FR-MTG-03 names only the borrower |
 | 11 | Are the proposed data retention periods in section 3.6 acceptable? | Fixes FR-DAT-01 and FR-DAT-02 |
-| 12 | Is the hourly rule right: per-minute pricing with a 1-hour minimum? | Fixes FR-REQ-05 and TC-20 |
+| 12 | Should CampusShare continue charging hourly rentals by rounding up to the next full hour, or should the team introduce per-minute pricing? | FR-REQ-05 and TC-20; the current system uses whole-hour billing. |
 | 13 | Which browsers must the demonstration support? | Fixes FR-EXT-01 and TC-30 |
 | 14 | Is the performance target (2 seconds for 95% of requests, 1,000 listings, 50 users) the right target? | NFR-PERF-01 was marked *proposed* in v0.3 |
 
